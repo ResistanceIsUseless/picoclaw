@@ -1,0 +1,136 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.picoclaw/workspace",
+      "restrict_to_workspace": false,
+      "model_name": "claude-sonnet-4",
+      "max_tokens": 8192,
+      "temperature": 0.3,
+      "max_tool_iterations": 50
+    }
+  },
+  "routing": {
+    "enabled": true,
+    "default_tier": "heavy",
+    "tiers": {
+      "heavy": {
+        "model_name": "claude-sonnet-4",
+        "use_for": ["planning", "analysis", "exploitation", "report_writing"],
+        "cost_per_m": {
+          "input": 3.0,
+          "output": 15.0
+        }
+      },
+      "medium": {
+        "model_name": "codestral-22b-local",
+        "use_for": ["tool_selection", "code_review", "js_analysis"],
+        "cost_per_m": {
+          "input": 0.0,
+          "output": 0.0
+        }
+      },
+      "light": {
+        "model_name": "nemotron-nano-local",
+        "use_for": ["parsing", "summary", "formatting", "triage"],
+        "cost_per_m": {
+          "input": 0.0,
+          "output": 0.0
+        }
+      }
+    }
+  },
+  "model_list": [
+    {
+      "model_name": "claude-sonnet-4",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "api_key": "${ANTHROPIC_API_KEY}"
+    },
+    {
+      "model_name": "codestral-22b-local",
+      "model": "lmstudio/codestral-22b-v0.1-8bit",
+      "api_base": "http://localhost:1234/v1"
+    },
+    {
+      "model_name": "glm-4.7-flash-local",
+      "model": "lmstudio/glm-4.7-flash",
+      "api_base": "http://localhost:1234/v1"
+    },
+    {
+      "model_name": "nemotron-nano-local",
+      "model": "lmstudio/nvidia-nemotron-3-nano",
+      "api_base": "http://localhost:1234/v1"
+    },
+    {
+      "model_name": "kimi-k2.5",
+      "model": "openrouter/moonshotai/kimi-k2.5",
+      "api_key": "${OPENROUTER_API_KEY}",
+      "api_base": "https://openrouter.ai/api/v1"
+    },
+    {
+      "model_name": "glm-5-nvidia",
+      "model": "nvidia/z-ai/glm5",
+      "api_key": "${NVIDIA_API_KEY}",
+      "api_base": "https://integrate.api.nvidia.com/v1"
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "enabled": false,
+      "token": "",
+      "allow_from": []
+    },
+    "discord": {
+      "enabled": false,
+      "token": "",
+      "allow_from": []
+    }
+  },
+  "tools": {
+    "web": {
+      "brave": {
+        "enabled": false,
+        "api_key": "",
+        "max_results": 5
+      },
+      "tavily": {
+        "enabled": false,
+        "api_key": "",
+        "max_results": 5
+      },
+      "duckduckgo": {
+        "enabled": true,
+        "max_results": 5
+      }
+    },
+    "cron": {
+      "exec_timeout_minutes": 5
+    },
+    "exec": {
+      "enable_deny_patterns": true,
+      "custom_deny_patterns": []
+    },
+    "skills": {
+      "registries": {
+        "clawhub": {
+          "enabled": false
+        }
+      },
+      "max_concurrent_searches": 5,
+      "search_cache": {
+        "max_size": 100,
+        "ttl_seconds": 3600
+      }
+    }
+  },
+  "heartbeat": {
+    "enabled": false,
+    "interval": 30
+  },
+  "devices": {
+    "enabled": false
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 8080
+  }
+}

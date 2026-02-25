@@ -38,6 +38,7 @@ type AgentLoop struct {
 	summarizing    sync.Map
 	fallback       *providers.FallbackChain
 	channelManager *channels.Manager
+	tierRouter     *routing.TierRouter // Optional tier-based routing
 }
 
 // processOptions configures how a message is processed
@@ -69,6 +70,18 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		stateManager = state.NewManager(defaultAgent.Workspace)
 	}
 
+	// Initialize tier router if routing is enabled
+	var tierRouter *routing.TierRouter
+	if cfg.Routing.Enabled {
+		// Build provider map from model_list
+		providerMap := buildProviderMap(cfg, provider)
+		tierRouter = routing.NewTierRouter(&cfg.Routing, cfg.ModelList, providerMap)
+		logger.InfoCF("agent", "Tier routing enabled", map[string]any{
+			"tiers":        len(cfg.Routing.Tiers),
+			"default_tier": cfg.Routing.DefaultTier,
+		})
+	}
+
 	return &AgentLoop{
 		bus:         msgBus,
 		cfg:         cfg,
@@ -76,7 +89,24 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		state:       stateManager,
 		summarizing: sync.Map{},
 		fallback:    fallbackChain,
+		tierRouter:  tierRouter,
 	}
+}
+
+// buildProviderMap creates a map of model_name -> provider for tier routing
+func buildProviderMap(cfg *config.Config, defaultProvider providers.LLMProvider) map[string]providers.LLMProvider {
+	providerMap := make(map[string]providers.LLMProvider)
+
+	// For each model in model_list, create or reuse a provider
+	// This is simplified - in production you'd want to create providers per unique api_base
+	for _, modelCfg := range cfg.ModelList {
+		// For now, use the default provider for all models
+		// In a full implementation, you'd create provider instances based on modelCfg.Model prefix
+		// (e.g., "anthropic/..." uses Anthropic provider, "lmstudio/..." uses OpenAI-compat)
+		providerMap[modelCfg.ModelName] = defaultProvider
+	}
+
+	return providerMap
 }
 
 // registerSharedTools registers tools that are shared across all agents (web, message, spawn).
@@ -512,11 +542,34 @@ func (al *AgentLoop) runLLMIteration(
 				"tools_json":    formatToolsForLog(providerToolDefs),
 			})
 
-		// Call LLM with fallback chain if candidates are configured.
+		// Call LLM with fallback chain if candidates are configured, or tier routing if enabled
 		var response *providers.LLMResponse
 		var err error
 
 		callLLM := func() (*providers.LLMResponse, error) {
+			// Check if tier routing is enabled
+			if al.tierRouter != nil && al.tierRouter.IsEnabled() {
+				// Classify task based on context
+				taskCtx := routing.AgentContext{
+					TurnCount:       iteration,
+					LastToolOutput:  "", // TODO: track last tool output
+					PhaseChanged:    false,
+					UserMessage:     opts.UserMessage,
+					ToolsAvailable:  len(providerToolDefs),
+					ReportRequested: false,
+					SessionStarted:  iteration == 1,
+				}
+				taskType := al.tierRouter.ClassifyTask(taskCtx)
+
+				// Route via tier router
+				return al.tierRouter.RouteChat(ctx, taskType, messages, providerToolDefs, map[string]any{
+					"max_tokens":       agent.MaxTokens,
+					"temperature":      agent.Temperature,
+					"prompt_cache_key": agent.ID,
+				}, opts.SessionKey)
+			}
+
+			// Original behavior: use fallback chain or direct provider
 			if len(agent.Candidates) > 1 && al.fallback != nil {
 				fbResult, fbErr := al.fallback.Execute(ctx, agent.Candidates,
 					func(ctx context.Context, provider, model string) (*providers.LLMResponse, error) {

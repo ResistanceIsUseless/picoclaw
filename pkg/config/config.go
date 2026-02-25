@@ -53,6 +53,7 @@ type Config struct {
 	Channels  ChannelsConfig  `json:"channels"`
 	Providers ProvidersConfig `json:"providers,omitempty"`
 	ModelList []ModelConfig   `json:"model_list"` // New model-centric provider configuration
+	Routing   RoutingConfig   `json:"routing,omitempty" env:"-"` // Tier-based model routing
 	Gateway   GatewayConfig   `json:"gateway"`
 	Tools     ToolsConfig     `json:"tools"`
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
@@ -687,4 +688,24 @@ func (c *Config) ValidateModelList() error {
 		}
 	}
 	return nil
+}
+
+// RoutingConfig configures tier-based model routing for cost optimization
+type RoutingConfig struct {
+	Enabled     bool                   `json:"enabled" env:"PICOCLAW_ROUTING_ENABLED"`
+	DefaultTier string                 `json:"default_tier" env:"PICOCLAW_ROUTING_DEFAULT_TIER"`
+	Tiers       map[string]TierConfig  `json:"tiers" env:"-"`
+}
+
+// TierConfig defines a model tier with its associated model and task types
+type TierConfig struct {
+	ModelName string       `json:"model_name"` // Reference to model_list entry
+	UseFor    []string     `json:"use_for"`    // Task types: planning, parsing, analysis, etc.
+	CostPerM  CostPerMInfo `json:"cost_per_m"` // Cost per million tokens
+}
+
+// CostPerMInfo tracks cost per million tokens for input/output
+type CostPerMInfo struct {
+	Input  float64 `json:"input"`  // Cost per 1M input tokens
+	Output float64 `json:"output"` // Cost per 1M output tokens
 }
