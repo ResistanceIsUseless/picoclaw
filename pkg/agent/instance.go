@@ -10,27 +10,29 @@ import (
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/picoclaw/pkg/workflow"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,
 // session manager, context builder, and tool registry.
 type AgentInstance struct {
-	ID             string
-	Name           string
-	Model          string
-	Fallbacks      []string
-	Workspace      string
-	MaxIterations  int
-	MaxTokens      int
-	Temperature    float64
-	ContextWindow  int
-	Provider       providers.LLMProvider
-	Sessions       *session.SessionManager
-	ContextBuilder *ContextBuilder
-	Tools          *tools.ToolRegistry
-	Subagents      *config.SubagentsConfig
-	SkillsFilter   []string
-	Candidates     []providers.FallbackCandidate
+	ID              string
+	Name            string
+	Model           string
+	Fallbacks       []string
+	Workspace       string
+	MaxIterations   int
+	MaxTokens       int
+	Temperature     float64
+	ContextWindow   int
+	Provider        providers.LLMProvider
+	Sessions        *session.SessionManager
+	ContextBuilder  *ContextBuilder
+	Tools           *tools.ToolRegistry
+	Subagents       *config.SubagentsConfig
+	SkillsFilter    []string
+	Candidates      []providers.FallbackCandidate
+	WorkflowEngine  *workflow.Engine // Optional workflow/mission state
 }
 
 // NewAgentInstance creates an agent instance from config.
@@ -155,4 +157,67 @@ func expandHome(path string) string {
 		return home
 	}
 	return path
+}
+
+// LoadWorkflow loads a workflow definition and creates a new mission.
+// Returns error if workflow cannot be loaded or mission already exists for target.
+func (ai *AgentInstance) LoadWorkflow(workflowName string, target string) error {
+	// Load workflow definition
+	wf, err := workflow.LoadWorkflow(ai.Workspace, workflowName)
+	if err != nil {
+		return err
+	}
+
+	// Create new workflow engine
+	ai.WorkflowEngine = workflow.NewEngine(wf, target, ai.Workspace)
+
+	// Wire up workflow context injection
+	ai.ContextBuilder.SetWorkflowContextFunc(func() string {
+		if ai.WorkflowEngine != nil {
+			return ai.WorkflowEngine.GetContextPrompt()
+		}
+		return ""
+	})
+
+	// Invalidate cached system prompt to include workflow context
+	ai.ContextBuilder.InvalidateCache()
+
+	return nil
+}
+
+// LoadExistingMission loads an existing mission state from disk.
+func (ai *AgentInstance) LoadExistingMission(workflowName string, stateFile string) error {
+	// Load workflow definition
+	wf, err := workflow.LoadWorkflow(ai.Workspace, workflowName)
+	if err != nil {
+		return err
+	}
+
+	// Load existing state
+	engine, err := workflow.LoadEngine(wf, stateFile, ai.Workspace)
+	if err != nil {
+		return err
+	}
+
+	ai.WorkflowEngine = engine
+
+	// Wire up workflow context injection
+	ai.ContextBuilder.SetWorkflowContextFunc(func() string {
+		if ai.WorkflowEngine != nil {
+			return ai.WorkflowEngine.GetContextPrompt()
+		}
+		return ""
+	})
+
+	// Invalidate cached system prompt to include workflow context
+	ai.ContextBuilder.InvalidateCache()
+
+	return nil
+}
+
+// UnloadWorkflow clears the workflow engine and stops injecting workflow context.
+func (ai *AgentInstance) UnloadWorkflow() {
+	ai.WorkflowEngine = nil
+	ai.ContextBuilder.SetWorkflowContextFunc(nil)
+	ai.ContextBuilder.InvalidateCache()
 }

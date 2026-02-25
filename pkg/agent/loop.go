@@ -27,6 +27,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/state"
 	"github.com/sipeed/picoclaw/pkg/tools"
 	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/sipeed/picoclaw/pkg/workflow"
 )
 
 type AgentLoop struct {
@@ -179,6 +180,16 @@ func registerSharedTools(
 			return registry.CanSpawnSubagent(currentAgentID, targetAgentID)
 		})
 		agent.Tools.Register(spawnTool)
+
+		// Workflow tools (only registered if agent has workflow engine)
+		getEngine := func() *workflow.Engine {
+			return agent.WorkflowEngine
+		}
+		agent.Tools.Register(tools.NewWorkflowStepCompleteTool(getEngine))
+		agent.Tools.Register(tools.NewWorkflowCreateBranchTool(getEngine))
+		agent.Tools.Register(tools.NewWorkflowCompleteBranchTool(getEngine))
+		agent.Tools.Register(tools.NewWorkflowAddFindingTool(getEngine))
+		agent.Tools.Register(tools.NewWorkflowAdvancePhaseTool(getEngine))
 	}
 }
 

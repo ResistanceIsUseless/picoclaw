@@ -33,6 +33,11 @@ type ContextBuilder struct {
 	// created (didn't exist at cache time, now exist) or deleted (existed at
 	// cache time, now gone) — both of which should trigger a cache rebuild.
 	existedAtCache map[string]bool
+
+	// workflowContextFunc is an optional function that returns workflow context
+	// to inject into the system prompt. This allows the agent loop to provide
+	// workflow/mission state without tight coupling.
+	workflowContextFunc func() string
 }
 
 func getGlobalConfigDir() string {
@@ -108,6 +113,14 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 	memoryContext := cb.memory.GetMemoryContext()
 	if memoryContext != "" {
 		parts = append(parts, "# Memory\n\n"+memoryContext)
+	}
+
+	// Workflow context (mission state, phases, steps)
+	if cb.workflowContextFunc != nil {
+		workflowContext := cb.workflowContextFunc()
+		if workflowContext != "" {
+			parts = append(parts, workflowContext)
+		}
 	}
 
 	// Join with "---" separator
@@ -579,4 +592,10 @@ func (cb *ContextBuilder) GetSkillsInfo() map[string]any {
 		"available": len(allSkills),
 		"names":     skillNames,
 	}
+}
+
+// SetWorkflowContextFunc sets a function to provide workflow context for the system prompt.
+// This allows the agent loop to inject mission/workflow state without tight coupling.
+func (cb *ContextBuilder) SetWorkflowContextFunc(fn func() string) {
+	cb.workflowContextFunc = fn
 }
