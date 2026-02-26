@@ -330,35 +330,40 @@ All discovered hosts have been service scanned.
 - smb_found → enumeration:smb
 ```
 
-## Phase 5: TUI (Week 4)
+## ✅ Phase 4 Complete: TUI Implementation
+
+1. [x] Installed Charm TUI dependencies (Bubble Tea, Lip Gloss, Glamour, Bubbles)
+2. [x] Created pkg/tui package with complete TUI implementation
+3. [x] Implemented status bar with model and cost tracking
+4. [x] Built chat view with markdown rendering
+5. [x] Created mission panel for workflow state visualization
+6. [x] Implemented input bar with keyboard navigation
+7. [x] All components compile successfully
+
+**Components:**
+- model.go: Main TUI app with Bubble Tea event loop
+- statusbar.go: Status bar showing current model, tier, and session cost
+- chatview.go: Chat display with Glamour markdown rendering
+- missionview.go: Workflow state panel with phase/step tracking
+- inputbar.go: User input with full keyboard navigation
+
+**Features:**
+- Split-screen layout (Ctrl+M to toggle mission panel)
+- Real-time model tier switching display
+- Session cost tracking
+- Workflow progress visualization
+- Findings summary with color-coded severity
+- Scrollable chat history
+
+**Next: Integration with agent command for interactive sessions**
+
+## Phase 5: Integration & Testing
 
 ### Goals
-- Professional terminal UI
-- Real-time model switching display
-- Cost tracking visible
-- Workflow phase progress
-
-### Implementation
-
-```go
-// pkg/tui/app.go
-type App struct {
-    agent      *agent.Loop
-    router     *routing.TierRouter
-    chatView   *ChatView
-    statusBar  *StatusBar
-    missionBar *MissionBar
-}
-
-func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-    case ModelSwitchMsg:
-        a.statusBar.SetModel(msg.Model, msg.Tier)
-    case CostUpdateMsg:
-        a.statusBar.SetCost(msg.Total)
-    }
-}
-```
+- Wire TUI into agent command with --tui flag
+- Connect model switch and cost events
+- Test with real network scan missions
+- Performance testing
 
 ## Testing Plan
 
