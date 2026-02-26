@@ -13,6 +13,7 @@ func NewConfigCommand() *cobra.Command {
 
 	cmd.AddCommand(newTestCommand())
 	cmd.AddCommand(newModelsCommand())
+	cmd.AddCommand(newDiscoverCommand())
 
 	return cmd
 }
