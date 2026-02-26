@@ -10,7 +10,8 @@ build/
 *.out
 /picoclaw
 /picoclaw-test
-cmd/**/workspace
+# Note: cmd/picoclaw/internal/onboard/workspace/ is committed for go:embed
+# Run `go generate ./cmd/picoclaw/internal/onboard/` to refresh from root workspace/
 
 # Picoclaw specific
 
