@@ -518,6 +518,7 @@ func (al *AgentLoop) runLLMIteration(
 ) (string, int, error) {
 	iteration := 0
 	var finalContent string
+	var lastToolOutput string
 
 	for iteration < agent.MaxIterations {
 		iteration++
@@ -563,7 +564,7 @@ func (al *AgentLoop) runLLMIteration(
 				// Classify task based on context
 				taskCtx := routing.AgentContext{
 					TurnCount:       iteration,
-					LastToolOutput:  "", // TODO: track last tool output
+					LastToolOutput:  lastToolOutput,
 					PhaseChanged:    false,
 					UserMessage:     opts.UserMessage,
 					ToolsAvailable:  len(providerToolDefs),
@@ -572,7 +573,36 @@ func (al *AgentLoop) runLLMIteration(
 				}
 				taskType := al.tierRouter.ClassifyTask(taskCtx)
 
-				// Route via tier router
+				// Use hierarchical supervision for complex tasks
+				if taskCtx.RequiresSupervision {
+					supervisionResult, err := al.tierRouter.RouteWithSupervision(ctx, taskType, messages, providerToolDefs, map[string]any{
+						"max_tokens":       agent.MaxTokens,
+						"temperature":      agent.Temperature,
+						"prompt_cache_key": agent.ID,
+					}, opts.SessionKey, taskCtx)
+					if err != nil {
+						return nil, fmt.Errorf("supervised execution failed: %w", err)
+					}
+					logger.InfoCF("agent", "Completed supervised execution", map[string]any{
+						"task":              taskType,
+						"supervisor_model":  supervisionResult.SupervisorModel,
+						"worker_model":      supervisionResult.WorkerModel,
+						"validated":         supervisionResult.Validated,
+						"corrections_count": len(supervisionResult.Corrections),
+					})
+					// Create response from supervision result
+					resp := &providers.LLMResponse{
+						Content: supervisionResult.FinalOutput,
+						Usage: &providers.UsageInfo{
+							PromptTokens:     0, // Will be filled by cost tracking
+							CompletionTokens: 0,
+							TotalTokens:     0,
+						},
+					}
+					return resp, nil
+				}
+
+				// Route via tier router (non-supervised)
 				return al.tierRouter.RouteChat(ctx, taskType, messages, providerToolDefs, map[string]any{
 					"max_tokens":       agent.MaxTokens,
 					"temperature":      agent.Temperature,
@@ -780,6 +810,11 @@ func (al *AgentLoop) runLLMIteration(
 			contentForLLM := toolResult.ForLLM
 			if contentForLLM == "" && toolResult.Err != nil {
 				contentForLLM = toolResult.Err.Error()
+			}
+
+			// Track last tool output for task classification
+			if contentForLLM != "" {
+				lastToolOutput = utils.Truncate(contentForLLM, 500) // Limit size for classification
 			}
 
 			toolResultMsg := providers.Message{
@@ -1135,7 +1170,7 @@ func (al *AgentLoop) estimateTokens(messages []providers.Message) int {
 	return totalChars * 2 / 5
 }
 
-func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) (string, bool) {
+func (al *AgentLoop) handleCommand(_ context.Context, msg bus.InboundMessage) (string, bool) {
 	content := strings.TrimSpace(msg.Content)
 	if !strings.HasPrefix(content, "/") {
 		return "", false

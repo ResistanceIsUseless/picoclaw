@@ -206,7 +206,7 @@ type antigravityGenConfig struct {
 func (p *AntigravityProvider) buildRequest(
 	messages []Message,
 	tools []ToolDefinition,
-	model string,
+	_ string,
 	options map[string]any,
 ) antigravityRequest {
 	req := antigravityRequest{}

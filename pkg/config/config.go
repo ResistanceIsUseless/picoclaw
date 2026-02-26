@@ -49,11 +49,11 @@ func (f *FlexibleStringSlice) UnmarshalJSON(data []byte) error {
 type Config struct {
 	Agents    AgentsConfig    `json:"agents"`
 	Bindings  []AgentBinding  `json:"bindings,omitempty"`
-	Session   SessionConfig   `json:"session,omitempty"`
+	Session   SessionConfig   `json:"session"`
 	Channels  ChannelsConfig  `json:"channels"`
-	Providers ProvidersConfig `json:"providers,omitempty"`
+	Providers ProvidersConfig `json:"providers"`
 	ModelList []ModelConfig   `json:"model_list"` // New model-centric provider configuration
-	Routing   RoutingConfig   `json:"routing,omitempty" env:"-"` // Tier-based model routing
+	Routing   RoutingConfig   `json:"routing" env:"-"` // Tier-based model routing
 	Gateway   GatewayConfig   `json:"gateway"`
 	Tools     ToolsConfig     `json:"tools"`
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
@@ -694,9 +694,13 @@ func (c *Config) ValidateModelList() error {
 
 // RoutingConfig configures tier-based model routing for cost optimization
 type RoutingConfig struct {
-	Enabled     bool                   `json:"enabled" env:"PICOCLAW_ROUTING_ENABLED"`
-	DefaultTier string                 `json:"default_tier" env:"PICOCLAW_ROUTING_DEFAULT_TIER"`
-	Tiers       map[string]TierConfig  `json:"tiers" env:"-"`
+	Enabled                     bool                   `json:"enabled" env:"PICOCLAW_ROUTING_ENABLED"`
+	DefaultTier                 string                 `json:"default_tier" env:"PICOCLAW_ROUTING_DEFAULT_TIER"`
+	Tiers                       map[string]TierConfig  `json:"tiers" env:"-"`
+	EnableSupervision           bool                   `json:"enable_supervision" env:"PICOCLAW_ROUTING_ENABLE_SUPERVISION"`
+	SupervisorTier              string                 `json:"supervisor_tier" env:"PICOCLAW_ROUTING_SUPERVISOR_TIER"`
+	ValidationConfidenceThreshold float64              `json:"validation_confidence_threshold" env:"PICOCLAW_ROUTING_VALIDATION_CONFIDENCE_THRESHOLD"`
+	MinTaskComplexityForSupervision int                 `json:"min_task_complexity_for_supervision" env:"PICOCLAW_ROUTING_MIN_TASK_COMPLEXITY"`
 }
 
 // TierConfig defines a model tier with its associated model and task types

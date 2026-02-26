@@ -23,6 +23,7 @@ type SessionCost struct {
 	TotalCost  float64
 	StartTime  time.Time
 	LastUpdate time.Time
+	Supervision SupervisionMetrics
 }
 
 // ModelCost tracks usage and cost for a specific model
@@ -44,6 +45,18 @@ type TierCost struct {
 	Calls        int
 	TotalCost    float64
 	TotalLatency time.Duration
+}
+
+// SupervisionMetrics tracks supervision-related performance metrics
+type SupervisionMetrics struct {
+	TotalSupervisions    int
+	SuccessfulValidations int
+	FailedValidations    int
+	FallbacksUsed        int
+	CorrectionsApplied   int
+	TotalSupervisionCost float64
+	AvgConfidenceScore   float64
+	SupervisionSavings   float64 // Cost saved by using worker models
 }
 
 // NewCostTracker creates a new cost tracker
@@ -120,6 +133,56 @@ func (ct *CostTracker) Record(
 	session.LastUpdate = time.Now()
 }
 
+// RecordSupervision records supervision-related metrics
+func (ct *CostTracker) RecordSupervision(
+	sessionKey string,
+	validationSuccess bool,
+	validationFailed bool,
+	fallbackUsed bool,
+	correctionsCount int,
+	supervisionCost float64,
+	confidenceScore float64,
+	costSavings float64,
+) {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+
+	session, ok := ct.sessions[sessionKey]
+	if !ok {
+		// Create session if it doesn't exist
+		session = &SessionCost{
+			SessionKey: sessionKey,
+			ByModel:    make(map[string]*ModelCost),
+			ByTier:     make(map[string]*TierCost),
+			StartTime:  time.Now(),
+		}
+		ct.sessions[sessionKey] = session
+	}
+
+	// Update supervision metrics
+	session.Supervision.TotalSupervisions++
+	if validationSuccess {
+		session.Supervision.SuccessfulValidations++
+	}
+	if validationFailed {
+		session.Supervision.FailedValidations++
+	}
+	if fallbackUsed {
+		session.Supervision.FallbacksUsed++
+	}
+	session.Supervision.CorrectionsApplied += correctionsCount
+	session.Supervision.TotalSupervisionCost += supervisionCost
+	session.Supervision.SupervisionSavings += costSavings
+	
+	// Update average confidence score
+	if session.Supervision.TotalSupervisions > 0 {
+		totalConfidence := float64(session.Supervision.TotalSupervisions-1) * session.Supervision.AvgConfidenceScore
+		session.Supervision.AvgConfidenceScore = (totalConfidence + confidenceScore) / float64(session.Supervision.TotalSupervisions)
+	} else {
+		session.Supervision.AvgConfidenceScore = confidenceScore
+	}
+}
+
 // GetSessionCost returns cost information for a session
 func (ct *CostTracker) GetSessionCost(sessionKey string) *SessionCost {
 	ct.mu.RLock()
@@ -138,6 +201,7 @@ func (ct *CostTracker) GetSessionCost(sessionKey string) *SessionCost {
 		TotalCost:  session.TotalCost,
 		StartTime:  session.StartTime,
 		LastUpdate: session.LastUpdate,
+		Supervision: session.Supervision,
 	}
 
 	for k, v := range session.ByModel {
@@ -179,6 +243,27 @@ func (ct *CostTracker) FormatSessionReport(sessionKey string) string {
 	report += fmt.Sprintf("Session: %s\n", sessionKey)
 	report += fmt.Sprintf("Duration: %s\n", duration.Round(time.Second))
 	report += fmt.Sprintf("Total Cost: $%.4f\n\n", session.TotalCost)
+
+	// Add supervision metrics if available
+	if session.Supervision.TotalSupervisions > 0 {
+		report += fmt.Sprintf("Supervision Metrics:\n")
+		report += fmt.Sprintf("====================\n")
+		report += fmt.Sprintf("Total Supervisions: %d\n", session.Supervision.TotalSupervisions)
+		report += fmt.Sprintf("Successful Validations: %d\n", session.Supervision.SuccessfulValidations)
+		report += fmt.Sprintf("Failed Validations: %d\n", session.Supervision.FailedValidations)
+		report += fmt.Sprintf("Fallbacks Used: %d\n", session.Supervision.FallbacksUsed)
+		report += fmt.Sprintf("Corrections Applied: %d\n", session.Supervision.CorrectionsApplied)
+		report += fmt.Sprintf("Supervision Cost: $%.4f\n", session.Supervision.TotalSupervisionCost)
+		report += fmt.Sprintf("Cost Savings: $%.4f\n", session.Supervision.SupervisionSavings)
+		report += fmt.Sprintf("Avg Confidence Score: %.2f\n\n", session.Supervision.AvgConfidenceScore)
+		
+		// Calculate supervision effectiveness
+		if session.Supervision.TotalSupervisions > 0 {
+			successRate := float64(session.Supervision.SuccessfulValidations) / float64(session.Supervision.TotalSupervisions) * 100
+			report += fmt.Sprintf("Supervision Success Rate: %.1f%%\n", successRate)
+		}
+		report += fmt.Sprintf("\n")
+	}
 
 	report += fmt.Sprintf("By Tier:\n")
 	report += fmt.Sprintf("--------\n")
