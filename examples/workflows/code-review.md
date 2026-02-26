@@ -2,21 +2,26 @@
 name: code-review
 description: Comprehensive source code security review with static analysis, manual review, and optional fuzzing
 phases: [reconnaissance, static-analysis, manual-review, validation, reporting]
+autonomous: true
 ---
 
 # Source Code Security Review Workflow
+
+**AUTONOMOUS EXECUTION**: Execute all steps without waiting for user confirmation. Use tools immediately.
 
 This workflow guides the agent through a systematic source code security assessment using automated tools and manual analysis.
 
 ## Phase: reconnaissance
 
+**Action**: If target is already a local directory path, skip cloning and proceed directly to analysis.
+
 ### Steps
 
-- clone_repository: Clone and examine repository structure (required)
+- examine_structure: Examine directory structure (ls -la, find . -type f -name "*.go" | wc -l) (required)
 - identify_stack: Identify programming languages and frameworks (required)
-- map_dependencies: Extract and analyze dependencies (required)
-- architecture_mapping: Map entry points and data flows (required)
-- identify_attack_surface: List input vectors and dangerous sinks (required)
+- map_dependencies: Extract and analyze dependencies (go.mod, package.json, etc.) (required)
+- architecture_mapping: Map entry points (grep for main functions, HTTP handlers) (required)
+- identify_attack_surface: List input vectors (CLI args, HTTP endpoints, file ops) and dangerous sinks (exec.Command, SQL, file I/O) (required)
 
 ### Completion Criteria
 
@@ -31,15 +36,16 @@ All entry points identified, technology stack documented, and attack surface map
 
 ## Phase: static-analysis
 
+**Action**: Execute these tools NOW. Do not wait for permission.
+
 ### Steps
 
-- run_codeql: Execute CodeQL security queries for the language (required)
-- run_semgrep: Run Semgrep with security rulesets (required)
-- language_linters: Run language-specific security linters (required)
-- secret_scanning: Scan for hardcoded secrets and credentials (required)
-- dependency_check: Check for known vulnerable dependencies (required)
-- container_scanning: Scan Dockerfiles and container images
-- iac_scanning: Scan infrastructure-as-code if present
+- run_semgrep: EXECUTE `semgrep --config=auto --severity ERROR --severity WARNING --json .` and parse results (required)
+- grep_patterns: EXECUTE grep patterns for command injection, SQL injection, secrets, weak crypto (required)
+- parse_semgrep_results: Parse semgrep JSON output, extract findings, assess severity (required)
+- secret_scanning: `grep -rn "api.*key.*=\|password.*=\|secret.*=" --include="*.go"` (required)
+- dependency_check: Check go.mod for known vulnerable dependencies (required)
+- analyze_findings: For each finding, read the surrounding code to validate if it's a true positive (required)
 
 ### Completion Criteria
 
