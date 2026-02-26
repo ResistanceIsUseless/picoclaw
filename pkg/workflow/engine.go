@@ -71,7 +71,9 @@ func (e *Engine) GetContextPrompt() string {
 
 	sb.WriteString("# Active Mission Context\n\n")
 	sb.WriteString(fmt.Sprintf("**Workflow**: %s\n", e.workflow.Name))
-	sb.WriteString(fmt.Sprintf("**Target**: %s\n", e.state.Target))
+	if e.state.Target != "" {
+		sb.WriteString(fmt.Sprintf("**Target**: %s\n", e.state.Target))
+	}
 	sb.WriteString(fmt.Sprintf("**Started**: %s\n\n", e.state.StartTime.Format("2006-01-02 15:04:05")))
 
 	// Current phase
@@ -299,8 +301,12 @@ func (e *Engine) SaveState() error {
 		return fmt.Errorf("failed to create missions directory: %w", err)
 	}
 
-	// Sanitize target for filename
-	safeName := strings.ReplaceAll(e.state.Target, "/", "_")
+	// Sanitize target for filename, fall back to workflow name if no target
+	safeName := e.state.Target
+	if safeName == "" {
+		safeName = e.state.WorkflowName + "_" + e.state.StartTime.Format("20060102_150405")
+	}
+	safeName = strings.ReplaceAll(safeName, "/", "_")
 	safeName = strings.ReplaceAll(safeName, ":", "_")
 	stateFile := filepath.Join(stateDir, fmt.Sprintf("%s_state.json", safeName))
 

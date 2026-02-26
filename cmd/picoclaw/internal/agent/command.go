@@ -30,7 +30,7 @@ func NewAgentCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&model, "model", "", "", "Model to use")
 	cmd.Flags().BoolVar(&useTUI, "tui", false, "Use terminal UI (interactive mode only)")
 	cmd.Flags().StringVarP(&workflowName, "workflow", "w", "", "Load workflow for guided assessment (e.g., 'network-scan')")
-	cmd.Flags().StringVarP(&target, "target", "t", "", "Target for workflow mission (required with --workflow)")
+	cmd.Flags().StringVarP(&target, "target", "t", "", "Target for workflow mission (e.g., IP range, domain, URL)")
 
 	return cmd
 }

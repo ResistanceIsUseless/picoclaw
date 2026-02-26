@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/chzyer/readline"
 
@@ -29,9 +30,9 @@ func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowNam
 		fmt.Println("🔍 Debug mode enabled")
 	}
 
-	// Validate workflow flags
-	if workflowName != "" && target == "" {
-		return fmt.Errorf("--target is required when using --workflow")
+	// Auto-fresh session for workflow runs to avoid stale history pollution
+	if workflowName != "" && sessionKey == "cli:default" {
+		sessionKey = fmt.Sprintf("cli:workflow_%s_%d", workflowName, time.Now().Unix())
 	}
 
 	cfg, err := internal.LoadConfig()
@@ -72,7 +73,11 @@ func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowNam
 			"workflow": workflowName,
 			"target":   target,
 		})
-		fmt.Printf("📋 Loaded workflow: %s (target: %s)\n", workflowName, target)
+		if target != "" {
+			fmt.Printf("📋 Loaded workflow: %s (target: %s)\n", workflowName, target)
+		} else {
+			fmt.Printf("📋 Loaded workflow: %s\n", workflowName)
+		}
 	}
 
 	// Print agent startup info (only for interactive mode)
