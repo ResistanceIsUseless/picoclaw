@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 )
 
 // CostTracker tracks token usage and costs across sessions and models

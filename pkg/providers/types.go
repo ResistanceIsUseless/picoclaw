@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/providers/protocoltypes"
 )
 
 type (

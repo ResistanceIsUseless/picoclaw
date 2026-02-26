@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sipeed/picoclaw/pkg/workflow"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/workflow"
 )
 
 // MissionView displays workflow/mission state

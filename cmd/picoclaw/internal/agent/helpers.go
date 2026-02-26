@@ -11,12 +11,12 @@ import (
 
 	"github.com/chzyer/readline"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/pkg/agent"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/tui"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/agent"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/bus"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tui"
 )
 
 func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowName, target string) error {

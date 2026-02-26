@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	pkgconfig "github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal"
+	pkgconfig "github.com/ResistanceIsUseless/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 )
 
 func newTestCommand() *cobra.Command {
@@ -45,7 +45,7 @@ func testCmd(args []string, testAll bool) error {
 		return fmt.Errorf("no models configured in config.json")
 	}
 
-	fmt.Println("🔍 Testing API Connections\n")
+	fmt.Print("🔍 Testing API Connections\n\n")
 
 	// Test specific model if provided
 	if len(args) > 0 {

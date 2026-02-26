@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 )
 
 // TaskType represents the classification of an LLM task for tier routing

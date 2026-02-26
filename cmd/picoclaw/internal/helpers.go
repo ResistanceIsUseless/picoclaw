@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
 )
 
 const Logo = "🦞"

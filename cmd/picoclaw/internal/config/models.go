@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	pkgconfig "github.com/sipeed/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal"
+	pkgconfig "github.com/ResistanceIsUseless/picoclaw/pkg/config"
 )
 
 func newModelsCommand() *cobra.Command {
@@ -42,7 +42,7 @@ func modelsCmd(showRouting bool) error {
 		return fmt.Errorf("no models configured in config.json")
 	}
 
-	fmt.Println("📋 Configured Models\n")
+	fmt.Print("📋 Configured Models\n\n")
 
 	// Group models by provider
 	providerModels := make(map[string][]pkgconfig.ModelConfig)
@@ -91,7 +91,7 @@ func modelsCmd(showRouting bool) error {
 
 	// Show routing summary if requested
 	if showRouting && cfg.Routing.Enabled {
-		fmt.Println("🎯 Routing Configuration\n")
+		fmt.Print("🎯 Routing Configuration\n\n")
 		fmt.Printf("  Default Tier: %s\n", cfg.Routing.DefaultTier)
 		fmt.Println()
 

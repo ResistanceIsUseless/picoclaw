@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/workflow"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/routing"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/session"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/workflow"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,

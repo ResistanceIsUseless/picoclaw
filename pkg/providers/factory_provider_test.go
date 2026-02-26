@@ -8,7 +8,7 @@ package providers
 import (
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
 )
 
 func TestExtractProtocol(t *testing.T) {

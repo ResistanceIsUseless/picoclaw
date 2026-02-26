@@ -12,17 +12,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/agent"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/auth"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/config"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cron"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/gateway"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/migrate"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/onboard"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/skills"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/status"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/version"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/agent"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/auth"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/config"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/cron"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/gateway"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/migrate"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/onboard"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/skills"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/status"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/version"
 )
 
 func NewPicoclawCommand() *cobra.Command {

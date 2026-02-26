@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/workflow"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/routing"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/workflow"
 )
 
 // Model is the main TUI application model

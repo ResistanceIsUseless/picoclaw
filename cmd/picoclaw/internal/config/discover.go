@@ -14,8 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	pkgconfig "github.com/sipeed/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal"
+	pkgconfig "github.com/ResistanceIsUseless/picoclaw/pkg/config"
 )
 
 func newDiscoverCommand() *cobra.Command {
@@ -77,7 +77,7 @@ func discoverCmd(provider string, interactive bool, outputConfig string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	fmt.Println("🔍 Discovering Available Models\n")
+	fmt.Print("🔍 Discovering Available Models\n\n")
 
 	var results []ProviderModels
 
@@ -361,7 +361,7 @@ func displayProviderModels(result ProviderModels) {
 }
 
 func interactiveSelection(cfg *pkgconfig.Config, results []ProviderModels, outputPath string) error {
-	fmt.Println("\n📝 Interactive Model Selection\n")
+	fmt.Print("\n📝 Interactive Model Selection\n\n")
 
 	// Collect all available models
 	var allModels []struct {

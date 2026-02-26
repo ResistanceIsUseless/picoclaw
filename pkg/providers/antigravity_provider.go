@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/auth"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/workflow"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/workflow"
 )
 
 // WorkflowStepCompleteTool allows marking workflow steps as complete

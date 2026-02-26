@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 )
 
 // Engine manages workflow execution and state
