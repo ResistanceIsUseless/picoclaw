@@ -180,6 +180,9 @@ func buildParams(
 
 	if len(tools) > 0 {
 		params.Tools = translateTools(tools)
+		params.ToolChoice = anthropic.ToolChoiceUnionParam{
+			OfAuto: &anthropic.ToolChoiceAutoParam{},
+		}
 	}
 
 	return params, nil

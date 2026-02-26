@@ -89,6 +89,14 @@ func NewAgentInstance(
 		temperature = *defaults.Temperature
 	}
 
+	// Context window: use configured value, or default to 128k tokens.
+	// This is the *input* context window of the model, used for summarization thresholds.
+	// It must NOT be confused with maxTokens which is the *output* token limit.
+	contextWindow := defaults.ContextWindow
+	if contextWindow == 0 {
+		contextWindow = 128000
+	}
+
 	// Resolve fallback candidates
 	modelCfg := providers.ModelConfig{
 		Primary:   model,
@@ -105,7 +113,7 @@ func NewAgentInstance(
 		MaxIterations:  maxIter,
 		MaxTokens:      maxTokens,
 		Temperature:    temperature,
-		ContextWindow:  maxTokens,
+		ContextWindow:  contextWindow,
 		Provider:       provider,
 		Sessions:       sessionsManager,
 		ContextBuilder: contextBuilder,

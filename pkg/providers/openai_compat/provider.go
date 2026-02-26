@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -229,6 +230,19 @@ func parseResponse(body []byte) (*LLMResponse, error) {
 		toolCalls = append(toolCalls, toolCall)
 	}
 
+	// Fallback: if no structured tool calls were returned but the content
+	// contains text-formatted tool calls (common with local models like
+	// codestral, qwen, etc.), parse them from the text.
+	if len(toolCalls) == 0 && choice.Message.Content != "" {
+		if extracted := extractToolCallsFromText(choice.Message.Content); len(extracted) > 0 {
+			log.Printf("openai_compat: extracted %d tool call(s) from text output (model did not use structured tool calling)", len(extracted))
+			toolCalls = extracted
+			// Clear the content since it was a tool call, not a real response
+			choice.Message.Content = ""
+			choice.FinishReason = "tool_calls"
+		}
+	}
+
 	return &LLMResponse{
 		Content:          choice.Message.Content,
 		ReasoningContent: choice.Message.ReasoningContent,
@@ -311,4 +325,112 @@ func asFloat(v any) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// textToolCallTagPattern matches the opening tags of text-formatted tool calls.
+var textToolCallTagPattern = regexp.MustCompile(`<(?:functioncall|tool_call)>\s*|` +
+	`\[TOOL_CALL\]\s*`)
+
+// extractToolCallsFromText parses tool calls embedded in the response text.
+// Many local models (codestral, qwen, mistral, etc.) emit tool calls as
+// text like <functioncall>{"name":"exec","arguments":{"command":"ls"}}
+// rather than using the API's structured tool_calls field.
+//
+// This uses brace-counting to correctly extract nested JSON objects
+// (e.g., {"name":"exec","arguments":{"command":"ls /tmp"}}).
+func extractToolCallsFromText(content string) []ToolCall {
+	var toolCalls []ToolCall
+
+	// Find all opening tags and extract JSON after each one
+	tagLocs := textToolCallTagPattern.FindAllStringIndex(content, -1)
+	for _, loc := range tagLocs {
+		remaining := content[loc[1]:]
+
+		// Extract balanced JSON object using brace counting
+		jsonStr := extractBalancedJSON(remaining)
+		if jsonStr == "" {
+			continue
+		}
+
+		// Try to parse as {"name":"...","arguments":{...}} or
+		// {"name":"...","arguments":"..."} (stringified JSON)
+		var call struct {
+			Name      string `json:"name"`
+			Arguments any    `json:"arguments"`
+		}
+		if err := json.Unmarshal([]byte(jsonStr), &call); err != nil {
+			log.Printf("openai_compat: failed to parse text tool call: %v", err)
+			continue
+		}
+		if call.Name == "" {
+			continue
+		}
+
+		arguments := make(map[string]any)
+		switch args := call.Arguments.(type) {
+		case map[string]any:
+			arguments = args
+		case string:
+			// Some models stringify the arguments JSON
+			if err := json.Unmarshal([]byte(args), &arguments); err != nil {
+				arguments["raw"] = args
+			}
+		}
+
+		toolCalls = append(toolCalls, ToolCall{
+			ID:        fmt.Sprintf("textcall_%d", len(toolCalls)),
+			Name:      call.Name,
+			Arguments: arguments,
+		})
+	}
+
+	return toolCalls
+}
+
+// extractBalancedJSON finds the first balanced JSON object in s.
+// Returns the complete JSON string including outer braces, or "" if not found.
+func extractBalancedJSON(s string) string {
+	start := strings.IndexByte(s, '{')
+	if start == -1 {
+		return ""
+	}
+
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i := start; i < len(s); i++ {
+		ch := s[i]
+
+		if escaped {
+			escaped = false
+			continue
+		}
+
+		if ch == '\\' && inString {
+			escaped = true
+			continue
+		}
+
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+
+		if inString {
+			continue
+		}
+
+		switch ch {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return s[start : i+1]
+			}
+		}
+	}
+
+	return "" // unbalanced braces
 }

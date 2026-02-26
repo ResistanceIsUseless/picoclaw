@@ -17,11 +17,11 @@ This workflow guides the agent through a systematic source code security assessm
 
 ### Steps
 
-- examine_structure: Examine directory structure (ls -la, find . -type f -name "*.go" | wc -l) (required)
-- identify_stack: Identify programming languages and frameworks (required)
-- map_dependencies: Extract and analyze dependencies (go.mod, package.json, etc.) (required)
-- architecture_mapping: Map entry points (grep for main functions, HTTP handlers) (required)
-- identify_attack_surface: List input vectors (CLI args, HTTP endpoints, file ops) and dangerous sinks (exec.Command, SQL, file I/O) (required)
+- examine_structure: **USE ExecTool** to run `ls -la` and `find . -type f -name "*.go" | wc -l` to examine directory structure (required)
+- identify_stack: **USE ReadFileTool** to read go.mod, package.json, or other dependency files to identify programming languages and frameworks (required)
+- map_dependencies: Extract and analyze dependencies from files read in previous step (required)
+- architecture_mapping: **USE ExecTool** with `grep -r "func main\|http.HandleFunc" --include="*.go"` to map entry points (required)
+- identify_attack_surface: Based on grep results, list input vectors (CLI args, HTTP endpoints, file ops) and dangerous sinks (exec.Command, SQL, file I/O) (required)
 
 ### Completion Criteria
 
@@ -36,16 +36,16 @@ All entry points identified, technology stack documented, and attack surface map
 
 ## Phase: static-analysis
 
-**Action**: Execute these tools NOW. Do not wait for permission.
+**Action**: Execute these tools NOW using the ExecTool. Do not wait for permission. Do not fabricate results.
 
 ### Steps
 
-- run_semgrep: EXECUTE `semgrep --config=auto --severity ERROR --severity WARNING --json .` and parse results (required)
-- grep_patterns: EXECUTE grep patterns for command injection, SQL injection, secrets, weak crypto (required)
-- parse_semgrep_results: Parse semgrep JSON output, extract findings, assess severity (required)
-- secret_scanning: `grep -rn "api.*key.*=\|password.*=\|secret.*=" --include="*.go"` (required)
-- dependency_check: Check go.mod for known vulnerable dependencies (required)
-- analyze_findings: For each finding, read the surrounding code to validate if it's a true positive (required)
+- run_semgrep: **USE ExecTool** with command `semgrep --config=auto --severity ERROR --severity WARNING --json .` in the target directory. Parse the **actual JSON output** from the tool. (required)
+- grep_patterns: **USE ExecTool** with grep commands to search for: command injection (`exec.Command`), SQL injection (`.Query`, `.Exec`), secrets (`password.*=`, `api.*key.*=`), weak crypto (`md5`, `sha1`) (required)
+- parse_semgrep_results: Parse the real semgrep JSON output you received from ExecTool, extract findings, assess severity (required)
+- secret_scanning: **USE ExecTool** with command `grep -rn "api.*key.*=\|password.*=\|secret.*=" --include="*.go"` and report actual matches (required)
+- dependency_check: Check go.mod for known vulnerable dependencies using `go list -m all` via ExecTool (required)
+- analyze_findings: For each finding from tools, use ReadFileTool to read the surrounding code to validate if it's a true positive (required)
 
 ### Completion Criteria
 

@@ -82,7 +82,7 @@ func (sm *SessionManager) AddFullMessage(sessionKey string, msg providers.Messag
 		sm.sessions[sessionKey] = session
 	}
 
-	session.Messages = append(session.Messages, msg)
+	session.Messages = append(session.Messages, msg.DeepCopy())
 	session.Updated = time.Now()
 }
 
@@ -96,7 +96,9 @@ func (sm *SessionManager) GetHistory(key string) []providers.Message {
 	}
 
 	history := make([]providers.Message, len(session.Messages))
-	copy(history, session.Messages)
+	for i, m := range session.Messages {
+		history[i] = m.DeepCopy()
+	}
 	return history
 }
 
@@ -272,10 +274,11 @@ func (sm *SessionManager) SetHistory(key string, history []providers.Message) {
 
 	session, ok := sm.sessions[key]
 	if ok {
-		// Create a deep copy to strictly isolate internal state
-		// from the caller's slice.
+		// Deep copy each message to isolate internal state from the caller.
 		msgs := make([]providers.Message, len(history))
-		copy(msgs, history)
+		for i, m := range history {
+			msgs[i] = m.DeepCopy()
+		}
 		session.Messages = msgs
 		session.Updated = time.Now()
 	}

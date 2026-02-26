@@ -100,9 +100,23 @@ func NewExecToolWithConfig(workingDir string, restrict bool, config *config.Conf
 		denyPatterns = append(denyPatterns, defaultDenyPatterns...)
 	}
 
+	// Default timeout: 5 minutes. Long-running commands like nmap scans,
+	// builds, and test suites need more than 60s. Configurable via
+	// tools.exec.timeout_seconds in config.json.
+	timeout := 300 * time.Second
+	if config != nil && config.Tools.Exec.TimeoutSeconds > 0 {
+		timeout = time.Duration(config.Tools.Exec.TimeoutSeconds) * time.Second
+	} else if config != nil && config.Tools.Exec.TimeoutSeconds == 0 {
+		// Explicit 0 in config means no timeout; but since 0 is the Go zero
+		// value we can't distinguish "not set" from "set to 0" without omitempty.
+		// With omitempty, absent field → 0 → use default. To disable timeout,
+		// set to a very large value (e.g. 86400 = 24h).
+		timeout = 300 * time.Second
+	}
+
 	return &ExecTool{
 		workingDir:          workingDir,
-		timeout:             60 * time.Second,
+		timeout:             timeout,
 		denyPatterns:        denyPatterns,
 		allowPatterns:       nil,
 		restrictToWorkspace: restrict,

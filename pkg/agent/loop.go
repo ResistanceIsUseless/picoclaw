@@ -484,7 +484,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 
 	// 7. Optional: summarization
 	if opts.EnableSummary {
-		al.maybeSummarize(agent, opts.SessionKey, opts.Channel, opts.ChatID)
+		al.maybeSummarize(ctx, agent, opts.SessionKey, opts.Channel, opts.ChatID)
 	}
 
 	// 8. Optional: send response via bus
@@ -695,7 +695,12 @@ func (al *AgentLoop) runLLMIteration(
 			ReasoningContent: response.ReasoningContent,
 		}
 		for _, tc := range normalizedToolCalls {
-			argumentsJSON, _ := json.Marshal(tc.Arguments)
+			argumentsJSON, err := json.Marshal(tc.Arguments)
+			if err != nil {
+				logger.WarnCF("agent", "Failed to marshal tool arguments",
+					map[string]any{"tool": tc.Name, "error": err.Error()})
+				argumentsJSON = []byte("{}")
+			}
 			// Copy ExtraContent to ensure thought_signature is persisted for Gemini 3
 			extraContent := tc.ExtraContent
 			thoughtSignature := ""
@@ -813,7 +818,9 @@ func (al *AgentLoop) updateToolContexts(agent *AgentInstance, channel, chatID st
 }
 
 // maybeSummarize triggers summarization if the session history exceeds thresholds.
-func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, chatID string) {
+// The parent context is used to derive a bounded child context so the goroutine
+// stops promptly when the agent loop shuts down.
+func (al *AgentLoop) maybeSummarize(ctx context.Context, agent *AgentInstance, sessionKey, channel, chatID string) {
 	newHistory := agent.Sessions.GetHistory(sessionKey)
 	tokenEstimate := al.estimateTokens(newHistory)
 	threshold := agent.ContextWindow * 75 / 100
@@ -821,7 +828,11 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 	if len(newHistory) > 20 || tokenEstimate > threshold {
 		summarizeKey := agent.ID + ":" + sessionKey
 		if _, loading := al.summarizing.LoadOrStore(summarizeKey, true); !loading {
+			// Derive a child context with a hard timeout so the goroutine
+			// cannot outlive the agent loop (ctx) or run indefinitely.
+			sumCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 			go func() {
+				defer cancel()
 				defer al.summarizing.Delete(summarizeKey)
 				if !constants.IsInternalChannel(channel) {
 					al.bus.PublishOutbound(bus.OutboundMessage{
@@ -830,7 +841,7 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 						Content: "Memory threshold reached. Optimizing conversation history...",
 					})
 				}
-				al.summarizeSession(agent, sessionKey)
+				al.summarizeSessionWithContext(sumCtx, agent, sessionKey)
 			}()
 		}
 	}
@@ -978,10 +989,20 @@ func formatToolsForLog(toolDefs []providers.ToolDefinition) string {
 	return sb.String()
 }
 
+// summarizeSessionWithContext summarizes conversation history using the provided context.
+// This allows the caller to cancel summarization when the agent loop shuts down.
+func (al *AgentLoop) summarizeSessionWithContext(ctx context.Context, agent *AgentInstance, sessionKey string) {
+	al.doSummarizeSession(ctx, agent, sessionKey)
+}
+
 // summarizeSession summarizes the conversation history for a session.
 func (al *AgentLoop) summarizeSession(agent *AgentInstance, sessionKey string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
+	al.doSummarizeSession(ctx, agent, sessionKey)
+}
+
+func (al *AgentLoop) doSummarizeSession(ctx context.Context, agent *AgentInstance, sessionKey string) {
 
 	history := agent.Sessions.GetHistory(sessionKey)
 	summary := agent.Sessions.GetSummary(sessionKey)
