@@ -16,9 +16,10 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/tui"
 )
 
-func agentCmd(message, sessionKey, model string, debug bool) error {
+func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowName, target string) error {
 	if sessionKey == "" {
 		sessionKey = "cli:default"
 	}
@@ -26,6 +27,11 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 	if debug {
 		logger.SetLevel(logger.DEBUG)
 		fmt.Println("🔍 Debug mode enabled")
+	}
+
+	// Validate workflow flags
+	if workflowName != "" && target == "" {
+		return fmt.Errorf("--target is required when using --workflow")
 	}
 
 	cfg, err := internal.LoadConfig()
@@ -50,6 +56,25 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
 
+	// Load workflow if specified
+	if workflowName != "" {
+		defaultAgent := agentLoop.GetRegistry().GetDefaultAgent()
+		if defaultAgent == nil {
+			return fmt.Errorf("failed to get default agent for workflow loading")
+		}
+
+		err := defaultAgent.LoadWorkflow(workflowName, target)
+		if err != nil {
+			return fmt.Errorf("failed to load workflow '%s': %w", workflowName, err)
+		}
+
+		logger.InfoCF("agent", "Workflow loaded", map[string]any{
+			"workflow": workflowName,
+			"target":   target,
+		})
+		fmt.Printf("📋 Loaded workflow: %s (target: %s)\n", workflowName, target)
+	}
+
 	// Print agent startup info (only for interactive mode)
 	startupInfo := agentLoop.GetStartupInfo()
 	logger.InfoCF("agent", "Agent initialized",
@@ -60,6 +85,7 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 		})
 
 	if message != "" {
+		// Single message mode (non-interactive)
 		ctx := context.Background()
 		response, err := agentLoop.ProcessDirect(ctx, message, sessionKey)
 		if err != nil {
@@ -69,6 +95,13 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 		return nil
 	}
 
+	// Interactive mode
+	if useTUI {
+		// TUI mode
+		return tuiMode(agentLoop, sessionKey)
+	}
+
+	// Traditional readline mode
 	fmt.Printf("%s Interactive mode (Ctrl+C to exit)\n\n", internal.Logo)
 	interactiveMode(agentLoop, sessionKey)
 
@@ -158,4 +191,44 @@ func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 
 		fmt.Printf("\n%s %s\n\n", internal.Logo, response)
 	}
+}
+
+func tuiMode(agentLoop *agent.AgentLoop, sessionKey string) error {
+	// Create TUI program
+	program := tui.NewProgram()
+
+	// Set up input handler with closure
+	var programRef *tui.Program = program
+	handler := func(input string) {
+		// Send user message to chat
+		programRef.Send(tui.SendChatMessage("user", input, ""))
+
+		// Process with agent
+		ctx := context.Background()
+		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
+		if err != nil {
+			programRef.Send(tui.SendChatMessage("system", fmt.Sprintf("Error: %v", err), ""))
+			return
+		}
+
+		// Send assistant response
+		programRef.Send(tui.SendChatMessage("assistant", response, ""))
+	}
+
+	// Set the handler
+	program.SetInputHandler(handler)
+
+	// Set up workflow engine if loaded
+	defaultAgent := agentLoop.GetRegistry().GetDefaultAgent()
+	if defaultAgent != nil && defaultAgent.WorkflowEngine != nil {
+		program.SetWorkflowEngine(defaultAgent.WorkflowEngine)
+	}
+
+	// Set up tier router if enabled
+	if tierRouter := agentLoop.GetTierRouter(); tierRouter != nil {
+		program.SetTierRouter(tierRouter)
+	}
+
+	// Run TUI
+	return program.Run()
 }

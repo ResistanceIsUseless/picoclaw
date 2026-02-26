@@ -889,6 +889,16 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 	})
 }
 
+// GetRegistry returns the agent registry
+func (al *AgentLoop) GetRegistry() *AgentRegistry {
+	return al.registry
+}
+
+// GetTierRouter returns the tier router if enabled
+func (al *AgentLoop) GetTierRouter() *routing.TierRouter {
+	return al.tierRouter
+}
+
 // GetStartupInfo returns information about loaded tools and skills for logging.
 func (al *AgentLoop) GetStartupInfo() map[string]any {
 	info := make(map[string]any)

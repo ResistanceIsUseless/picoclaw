@@ -245,6 +245,18 @@ func NewProgram() *Program {
 	}
 }
 
+// NewProgramWithHandler creates a TUI program with an input handler
+func NewProgramWithHandler(onSubmit func(string)) *Program {
+	model := NewModel()
+	model.inputBar.SetOnSubmit(onSubmit)
+	program := tea.NewProgram(model, tea.WithAltScreen())
+
+	return &Program{
+		program: program,
+		model:   model,
+	}
+}
+
 // Run starts the TUI
 func (p *Program) Run() error {
 	_, err := p.program.Run()
@@ -264,6 +276,11 @@ func (p *Program) SetWorkflowEngine(engine *workflow.Engine) {
 // SetTierRouter sets the tier router
 func (p *Program) SetTierRouter(router *routing.TierRouter) {
 	p.model.SetTierRouter(router)
+}
+
+// SetInputHandler sets the input handler callback
+func (p *Program) SetInputHandler(handler func(string)) {
+	p.model.inputBar.SetOnSubmit(handler)
 }
 
 // Quit quits the TUI

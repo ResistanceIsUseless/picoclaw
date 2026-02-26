@@ -42,11 +42,6 @@ func (s *StatusBar) View(width int) string {
 		Foreground(lipgloss.Color("230")).
 		Padding(0, 1)
 
-	tierStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("63")).
-		Foreground(lipgloss.Color("230")).
-		Padding(0, 1)
-
 	costStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("61")).
 		Foreground(lipgloss.Color("230")).

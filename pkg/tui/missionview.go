@@ -199,21 +199,18 @@ func (m *MissionView) View(width, height int) string {
 		start := max(0, len(state.Findings)-3)
 		for i := start; i < len(state.Findings); i++ {
 			f := state.Findings[i]
-			var style lipgloss.Style
+			var severityLabel string
 			switch f.Severity {
 			case workflow.SeverityCritical:
-				style = criticalStyle
+				severityLabel = criticalStyle.Render(fmt.Sprintf("[%s]", f.Severity))
 			case workflow.SeverityHigh:
-				style = highStyle
+				severityLabel = highStyle.Render(fmt.Sprintf("[%s]", f.Severity))
 			case workflow.SeverityMedium:
-				style = mediumStyle
+				severityLabel = mediumStyle.Render(fmt.Sprintf("[%s]", f.Severity))
 			case workflow.SeverityLow:
-				style = lowStyle
-			}
-
-			severityLabel := fmt.Sprintf("[%s]", f.Severity)
-			if style != (lipgloss.Style{}) {
-				severityLabel = style.Render(severityLabel)
+				severityLabel = lowStyle.Render(fmt.Sprintf("[%s]", f.Severity))
+			default:
+				severityLabel = fmt.Sprintf("[%s]", f.Severity)
 			}
 
 			title := f.Title
