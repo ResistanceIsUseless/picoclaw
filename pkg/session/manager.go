@@ -283,3 +283,24 @@ func (sm *SessionManager) SetHistory(key string, history []providers.Message) {
 		session.Updated = time.Now()
 	}
 }
+
+// DeleteSession removes a session from memory and deletes its persistent storage file.
+func (sm *SessionManager) DeleteSession(key string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	// Remove from memory
+	delete(sm.sessions, key)
+
+	// Remove from persistent storage if enabled
+	if sm.storage != "" {
+		filename := sanitizeFilename(key)
+		sessionPath := filepath.Join(sm.storage, filename+".json")
+		
+		if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to delete session file: %w", err)
+		}
+	}
+
+	return nil
+}

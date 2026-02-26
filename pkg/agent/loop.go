@@ -910,7 +910,7 @@ func (al *AgentLoop) GetTierRouter() *routing.TierRouter {
 	return al.tierRouter
 }
 
-// GetStartupInfo returns information about loaded tools and skills for logging.
+// GetStartupInfo returns information about loaded tools, skills, and model for logging.
 func (al *AgentLoop) GetStartupInfo() map[string]any {
 	info := make(map[string]any)
 
@@ -933,6 +933,11 @@ func (al *AgentLoop) GetStartupInfo() map[string]any {
 	info["agents"] = map[string]any{
 		"count": len(al.registry.ListAgentIDs()),
 		"ids":   al.registry.ListAgentIDs(),
+	}
+
+	// Model info
+	info["model"] = map[string]any{
+		"name": agent.Model,
 	}
 
 	return info
