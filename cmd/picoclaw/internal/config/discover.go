@@ -1,12 +1,14 @@
 package config
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,17 +102,15 @@ func discoverCmd(provider string, interactive bool, outputConfig string) error {
 	}
 
 	// Display results
-	for _, result := range results {
-		displayProviderModels(result)
+	if !interactive {
+		for _, result := range results {
+			displayProviderModels(result)
+		}
+		return nil
 	}
 
-	// TODO: Interactive selection mode
-	if interactive {
-		fmt.Println("\n⚠️  Interactive mode not yet implemented")
-		fmt.Println("Models will be displayed but not added to config automatically")
-	}
-
-	return nil
+	// Interactive mode: let user select models
+	return interactiveSelection(cfg, results, outputConfig)
 }
 
 func discoverProvider(cfg *pkgconfig.Config, provider string) ([]DiscoveredModel, error) {
@@ -358,4 +358,174 @@ func displayProviderModels(result ProviderModels) {
 
 		fmt.Println()
 	}
+}
+
+func interactiveSelection(cfg *pkgconfig.Config, results []ProviderModels, outputPath string) error {
+	fmt.Println("\n📝 Interactive Model Selection\n")
+
+	// Collect all available models
+	var allModels []struct {
+		Provider string
+		Model    DiscoveredModel
+	}
+
+	for _, result := range results {
+		if result.Error != nil {
+			fmt.Printf("⚠️  Skipping %s due to error: %v\n", result.Provider, result.Error)
+			continue
+		}
+		for _, model := range result.Models {
+			allModels = append(allModels, struct {
+				Provider string
+				Model    DiscoveredModel
+			}{
+				Provider: result.Provider,
+				Model:    model,
+			})
+		}
+	}
+
+	if len(allModels) == 0 {
+		return fmt.Errorf("no models available for selection")
+	}
+
+	fmt.Printf("Found %d total models across all providers\n\n", len(allModels))
+
+	// Display models with numbers
+	for i, item := range allModels {
+		fmt.Printf("[%d] %s - %s", i+1, item.Provider, item.Model.ID)
+		if item.Model.Name != "" && item.Model.Name != item.Model.ID {
+			fmt.Printf(" (%s)", item.Model.Name)
+		}
+		fmt.Println()
+	}
+
+	fmt.Println("\nEnter model numbers to add (comma-separated, e.g., 1,3,5), 'all', or 'done' to finish:")
+	fmt.Print("> ")
+
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+
+	input = strings.TrimSpace(input)
+	if input == "done" || input == "" {
+		fmt.Println("No models selected")
+		return nil
+	}
+
+	// Parse selections
+	var selectedModels []struct {
+		Provider string
+		Model    DiscoveredModel
+	}
+
+	if input == "all" {
+		selectedModels = allModels
+	} else {
+		// Parse comma-separated numbers
+		parts := strings.Split(input, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			num, err := strconv.Atoi(part)
+			if err != nil || num < 1 || num > len(allModels) {
+				fmt.Printf("⚠️  Invalid selection: %s\n", part)
+				continue
+			}
+			selectedModels = append(selectedModels, allModels[num-1])
+		}
+	}
+
+	if len(selectedModels) == 0 {
+		fmt.Println("No valid models selected")
+		return nil
+	}
+
+	fmt.Printf("\n✅ Selected %d model%s\n\n", len(selectedModels), plural(len(selectedModels)))
+
+	// Add models to config
+	for _, item := range selectedModels {
+		modelConfig := createModelConfig(item.Provider, item.Model)
+
+		// Check if model already exists
+		exists := false
+		for _, existing := range cfg.ModelList {
+			if existing.ModelName == modelConfig.ModelName {
+				exists = true
+				fmt.Printf("⚠️  Model %s already exists in config, skipping\n", modelConfig.ModelName)
+				break
+			}
+		}
+
+		if !exists {
+			cfg.ModelList = append(cfg.ModelList, modelConfig)
+			fmt.Printf("➕ Added: %s\n", modelConfig.ModelName)
+		}
+	}
+
+	// Save config
+	configPath := outputPath
+	if configPath == "" {
+		configPath = internal.GetConfigPath()
+	}
+
+	fmt.Printf("\n💾 Saving configuration to: %s\n", configPath)
+
+	// Marshal config to JSON with indentation
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	fmt.Println("✅ Configuration saved successfully!")
+	fmt.Println("\nRun 'picoclaw config models' to view your updated configuration")
+
+	return nil
+}
+
+func createModelConfig(provider string, model DiscoveredModel) pkgconfig.ModelConfig {
+	config := pkgconfig.ModelConfig{
+		ModelName: sanitizeModelName(model.ID),
+		Model:     model.ID,
+	}
+
+	switch strings.ToLower(provider) {
+	case "lmstudio":
+		// Use LM Studio base URL
+		apiBase := os.Getenv("LM_STUDIO_BASE_URL")
+		if apiBase == "" {
+			apiBase = "http://localhost:1234/v1"
+		}
+		config.APIBase = apiBase
+
+	case "openrouter":
+		config.APIBase = "https://openrouter.ai/api/v1"
+		config.APIKey = os.Getenv("OPENROUTER_API_KEY")
+
+	case "anthropic":
+		// Anthropic uses default settings, just need API key
+		config.APIKey = os.Getenv("ANTHROPIC_API_KEY")
+	}
+
+	return config
+}
+
+func sanitizeModelName(id string) string {
+	// Convert model ID to a friendly name
+	name := id
+
+	// Remove provider prefixes
+	name = strings.TrimPrefix(name, "openai/")
+	name = strings.TrimPrefix(name, "anthropic/")
+	name = strings.TrimPrefix(name, "google/")
+
+	// Replace slashes with dashes
+	name = strings.ReplaceAll(name, "/", "-")
+
+	return name
 }
