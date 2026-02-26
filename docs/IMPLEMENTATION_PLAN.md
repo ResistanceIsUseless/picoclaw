@@ -439,12 +439,25 @@ MCP integration deferred pending decision on architecture:
 
 See: https://www.kali.org/tools/mcp-kali-server/
 
-### ⏳ Phase 3: Workflow Engine (Next)
+### ✅ Phase 3 Complete: Workflow Engine
 
-Will be implemented based on `METHODOLOGY.md`:
-- Multi-phase security assessment tracking
-- Adaptive branching on discoveries
-- State persistence in mission files
+1. [x] Created pkg/workflow package with complete workflow execution engine
+2. [x] Implemented workflow types: Workflow, Phase, Step, MissionState, Finding
+3. [x] Built markdown workflow parser with YAML frontmatter support
+4. [x] Integrated workflow context injection into system prompts
+5. [x] Added 5 workflow management tools for agents
+6. [x] Created example network-scan workflow
+7. [x] Documented workflow system in WORKFLOW_GUIDE.md
+8. [x] All tests passing, build successful
+
+**Features:**
+- Multi-phase security assessment tracking with step completion
+- Adaptive branching on discoveries (e.g., "web service found" → create branch)
+- State persistence in workspace/missions/ as JSON
+- Workflow context auto-injected into agent system prompt
+- Tools: workflow_step_complete, workflow_create_branch, workflow_complete_branch, workflow_add_finding, workflow_advance_phase
+
+**Ready for Phase 4: TUI implementation!**
 
 ## Testing Instructions
 
@@ -476,8 +489,8 @@ cp config/config.tier-routing.example.json ~/.picoclaw/config.json
 
 ## Next Actions
 
-1. [ ] Test tier routing with your LM Studio + Anthropic setup
-2. [ ] Review cost savings on internal network scan
-3. [ ] Tune task classification based on results
-4. [ ] Begin Phase 3: Workflow engine design
-5. [ ] Integrate METHODOLOGY.md phases into workflow state tracking
+1. [ ] Test workflow engine with network scan mission
+2. [ ] Create workflow for web application assessment
+3. [ ] Begin Phase 4: TUI implementation with Charm
+4. [ ] Decide on MCP integration architecture
+5. [ ] Consider workflow visualization in TUI
