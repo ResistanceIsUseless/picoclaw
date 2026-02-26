@@ -3,7 +3,7 @@
   <h3>Methodology-driven AI agent framework with multi-model routing, workflow engine, and local model support</h3>
 
   <p>
-    <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/Go-1.25.7+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20RISC--V-blue" alt="Hardware">
   </p>
@@ -28,6 +28,14 @@ StrikeClaw is a fork of [PicoClaw](https://github.com/sipeed/picoclaw) extended 
 **19 Built-in Tools** — File operations, shell execution, web search/fetch, messaging, scheduled tasks (cron), subagent spawning, I2C/SPI hardware access, skill discovery/installation, and 5 workflow tracking tools.
 
 ## Quick Start
+
+### Install with Go
+
+```bash
+go install github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw@latest
+```
+
+Requires Go 1.25.7+. The binary is placed in your `$GOBIN` (default `~/go/bin`).
 
 ### Install from source
 
