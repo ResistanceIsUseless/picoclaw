@@ -9,17 +9,78 @@ import (
 
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools/filters"
 )
 
 type ToolRegistry struct {
-	tools map[string]Tool
-	mu    sync.RWMutex
+	tools          map[string]Tool
+	filterRegistry *filters.FilterRegistry
+	mu             sync.RWMutex
 }
 
 func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{
 		tools: make(map[string]Tool),
 	}
+}
+
+// NewToolRegistryWithFilters creates a new tool registry with output filtering enabled
+func NewToolRegistryWithFilters(outputDir string) *ToolRegistry {
+	registry := &ToolRegistry{
+		tools:          make(map[string]Tool),
+		filterRegistry: filters.NewFilterRegistry(outputDir),
+	}
+
+	// Register default filters for common tool patterns
+	registry.RegisterDefaultFilters()
+
+	return registry
+}
+
+// RegisterDefaultFilters registers standard filters for common security tools
+func (r *ToolRegistry) RegisterDefaultFilters() {
+	if r.filterRegistry == nil {
+		return
+	}
+
+	outputDir := r.filterRegistry.GetOutputDir()
+
+	// Web crawling tools
+	crawlFilter := filters.NewCrawlFilter(outputDir)
+	r.filterRegistry.Register("crawl", crawlFilter)
+	r.filterRegistry.Register("spider", crawlFilter)
+	r.filterRegistry.Register("katana", crawlFilter)
+	r.filterRegistry.Register("gospider", crawlFilter)
+	r.filterRegistry.Register("hakrawler", crawlFilter)
+
+	// Port scanning tools
+	portFilter := filters.NewPortScanFilter(outputDir)
+	r.filterRegistry.Register("nmap", portFilter)
+	r.filterRegistry.Register("masscan", portFilter)
+	r.filterRegistry.Register("naabu", portFilter)
+	r.filterRegistry.Register("rustscan", portFilter)
+
+	// Fuzzing tools
+	fuzzFilter := filters.NewFuzzingFilter(outputDir)
+	r.filterRegistry.Register("ffuf", fuzzFilter)
+	r.filterRegistry.Register("wfuzz", fuzzFilter)
+	r.filterRegistry.Register("gobuster", fuzzFilter)
+	r.filterRegistry.Register("feroxbuster", fuzzFilter)
+	r.filterRegistry.Register("dirsearch", fuzzFilter)
+
+	// Code analysis tools
+	codeFilter := filters.NewCodeAnalysisFilter(outputDir)
+	r.filterRegistry.Register("semgrep", codeFilter)
+	r.filterRegistry.Register("bandit", codeFilter)
+	r.filterRegistry.Register("gosec", codeFilter)
+	r.filterRegistry.Register("eslint", codeFilter)
+	r.filterRegistry.Register("sonarqube", codeFilter)
+
+	logger.InfoCF("tool", "Registered default output filters",
+		map[string]any{
+			"filter_count": 4,
+			"output_dir":   outputDir,
+		})
 }
 
 func (r *ToolRegistry) Register(tool Tool) {
@@ -81,6 +142,20 @@ func (r *ToolRegistry) ExecuteWithContext(
 	start := time.Now()
 	result := tool.Execute(ctx, args)
 	duration := time.Since(start)
+
+	// Apply output filtering if available and result is successful
+	if !result.IsError && !result.Async && r.filterRegistry != nil {
+		filtered, err := r.filterRegistry.ApplyFilter(name, []byte(result.ForLLM))
+		if err != nil {
+			logger.WarnCF("tool", "Failed to apply output filter",
+				map[string]any{
+					"tool":  name,
+					"error": err.Error(),
+				})
+		} else {
+			result.ForLLM = filtered
+		}
+	}
 
 	// Log based on result type
 	if result.IsError {

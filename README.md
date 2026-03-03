@@ -415,6 +415,7 @@ pkg/providers/         LLM provider abstraction
 pkg/routing/           Tier-based model routing
 pkg/workflow/          Workflow engine, parser, state management
 pkg/tools/             Tool registry + implementations
+  └── filters/         Output filters for security tools (port scan, fuzzer, crawler)
 pkg/session/           Conversation persistence
 pkg/channels/          Messaging platforms (Discord, Telegram, Slack, etc.)
 pkg/skills/            Skill discovery and installation

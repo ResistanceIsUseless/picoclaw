@@ -31,6 +31,12 @@ config/config.json
 coverage.txt
 coverage.html
 
+# Logs
+*.log
+
+# Temp files
+tmp/
+
 # OS
 .DS_Store
 

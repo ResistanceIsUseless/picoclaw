@@ -1,0 +1,66 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.picoclaw/workspace",
+      "restrict_to_workspace": false,
+      "model_name": "nemotron-nano-local",
+      "max_tokens": 8192,
+      "temperature": 0.3,
+      "max_tool_iterations": 50
+    }
+  },
+  "routing": {
+    "enabled": true,
+    "default_tier": "analysis",
+    "enable_supervision": true,
+    "supervisor_tier": "supervisor",
+    "validation_confidence_threshold": 0.8,
+    "min_task_complexity_for_supervision": 1,
+    "tiers": {
+      "supervisor": {
+        "model_name": "codestral-22b-local",
+        "use_for": ["validation", "security_analysis", "exploit_review", "final_assessment"],
+        "cost_per_m": {
+          "input": 0.0,
+          "output": 0.0
+        }
+      },
+      "analysis": {
+        "model_name": "nemotron-nano-local",
+        "use_for": ["reconnaissance", "vulnerability_scanning", "payload_analysis", "initial_assessment"],
+        "cost_per_m": {
+          "input": 0.0,
+          "output": 0.0
+        }
+      },
+      "exploitation": {
+        "model_name": "nemotron-nano-local",
+        "use_for": ["exploit_development", "privilege_escalation", "payload_generation"],
+        "cost_per_m": {
+          "input": 0.0,
+          "output": 0.0
+        }
+      },
+      "parsing": {
+        "model_name": "nemotron-nano-local",
+        "use_for": ["html_parsing", "log_analysis", "data_extraction", "response_processing"],
+        "cost_per_m": {
+          "input": 0.0,
+          "output": 0.0
+        }
+      }
+    }
+  },
+  "model_list": [
+    {
+      "model_name": "nemotron-nano-local",
+      "model": "openai/nvidia-nemotron-3-nano",
+      "api_base": "http://localhost:1234/v1"
+    },
+    {
+      "model_name": "codestral-22b-local",
+      "model": "openai/codestral-22b-v0.1-8bit",
+      "api_base": "http://localhost:1234/v1"
+    }
+  ]
+}
