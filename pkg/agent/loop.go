@@ -431,6 +431,30 @@ func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMe
 
 // runAgentLoop is the core message processing logic.
 func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opts processOptions) (string, error) {
+	// 0. Check for CLAW mode - if enabled, use CLAW orchestrator instead of legacy loop
+	if agent.CLAWAdapter != nil && agent.CLAWAdapter.IsEnabled() {
+		logger.InfoCF("agent", "Processing message in CLAW mode", map[string]any{
+			"agent_id": agent.ID,
+			"session":  opts.SessionKey,
+		})
+
+		response, err := agent.CLAWAdapter.ProcessMessage(ctx, opts.UserMessage)
+		if err != nil {
+			logger.ErrorCF("agent", "CLAW processing failed", map[string]any{
+				"error":    err.Error(),
+				"agent_id": agent.ID,
+			})
+			return "", fmt.Errorf("CLAW processing failed: %w", err)
+		}
+
+		// Save CLAW interaction to session
+		agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+		agent.Sessions.AddMessage(opts.SessionKey, "assistant", response)
+		agent.Sessions.Save(opts.SessionKey)
+
+		return response, nil
+	}
+
 	// 0. Record last channel for heartbeat notifications (skip internal channels)
 	if opts.Channel != "" && opts.ChatID != "" {
 		// Don't record internal channels (cli, system, subagent)

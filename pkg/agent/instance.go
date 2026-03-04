@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/integration"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/routing"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/session"
@@ -32,7 +33,8 @@ type AgentInstance struct {
 	Subagents       *config.SubagentsConfig
 	SkillsFilter    []string
 	Candidates      []providers.FallbackCandidate
-	WorkflowEngine  *workflow.Engine // Optional workflow/mission state
+	WorkflowEngine  *workflow.Engine           // Optional workflow/mission state
+	CLAWAdapter     *integration.CLAWAdapter   // Optional CLAW orchestrator adapter
 }
 
 // NewAgentInstance creates an agent instance from config.
@@ -104,6 +106,29 @@ func NewAgentInstance(
 	}
 	candidates := providers.ResolveCandidates(modelCfg, defaults.Provider)
 
+	// Initialize CLAW adapter if enabled
+	var clawAdapter *integration.CLAWAdapter
+	if defaults.CLAWMode != nil && defaults.CLAWMode.Enabled {
+		persistenceDir := defaults.CLAWMode.PersistenceDir
+		if persistenceDir == "" {
+			persistenceDir = filepath.Join(workspace, "blackboard")
+		}
+
+		adapterCfg := &integration.CLAWConfig{
+			Enabled:        true,
+			Pipeline:       defaults.CLAWMode.Pipeline,
+			PersistenceDir: persistenceDir,
+		}
+
+		adapter, err := integration.NewCLAWAdapter(adapterCfg, provider)
+		if err != nil {
+			// Log error but continue with non-CLAW mode
+			// This allows graceful degradation if CLAW setup fails
+		} else {
+			clawAdapter = adapter
+		}
+	}
+
 	return &AgentInstance{
 		ID:             agentID,
 		Name:           agentName,
@@ -121,6 +146,7 @@ func NewAgentInstance(
 		Subagents:      subagents,
 		SkillsFilter:   skillsFilter,
 		Candidates:     candidates,
+		CLAWAdapter:    clawAdapter,
 	}
 }
 

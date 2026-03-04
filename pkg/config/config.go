@@ -180,6 +180,14 @@ type AgentDefaults struct {
 	ContextWindow       int      `json:"context_window,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
 	Temperature         *float64 `json:"temperature,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations   int      `json:"max_tool_iterations"             env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	CLAWMode            *CLAWConfig `json:"claw,omitempty"`
+}
+
+// CLAWConfig configures CLAW orchestrator mode
+type CLAWConfig struct {
+	Enabled        bool   `json:"enabled"                         env:"PICOCLAW_CLAW_ENABLED"`
+	Pipeline       string `json:"pipeline,omitempty"              env:"PICOCLAW_CLAW_PIPELINE"`
+	PersistenceDir string `json:"persistence_dir,omitempty"       env:"PICOCLAW_CLAW_PERSISTENCE_DIR"`
 }
 
 // GetModelName returns the effective model name for the agent defaults.

@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ResistanceIsUseless/picoclaw/pkg/agent"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/blackboard"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/graph"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/phase"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/registry"
 )
 
@@ -33,9 +33,9 @@ type PhaseExecution struct {
 	StartTime     time.Time
 	EndTime       time.Time
 	Status        PhaseStatus
-	State         *agent.DAGState
-	Contract      *agent.PhaseContract
-	ContextBuilder *agent.PhaseContextBuilder
+	State         *phase.DAGState
+	Contract      *phase.PhaseContract
+	ContextBuilder *phase.PhaseContextBuilder
 	Iteration     int
 	Error         error
 	Artifacts     []blackboard.ArtifactEnvelope
@@ -135,11 +135,11 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 	phaseExec.Contract = contract
 
 	// Create DAG state
-	state := agent.NewDAGState(phaseDef.Name, phaseDef.Tools, phaseDef.Dependencies)
+	state := phase.NewDAGState(phaseDef.Name, phaseDef.Tools, phaseDef.Dependencies)
 	phaseExec.State = state
 
 	// Create context builder
-	contextBuilder := agent.NewPhaseContextBuilder(
+	contextBuilder := phase.NewPhaseContextBuilder(
 		phaseDef.Name,
 		phaseDef.Objective,
 		phaseDef.TokenBudget,
@@ -163,7 +163,7 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 
 		// Build context for this iteration
 		frontier := o.graph.ComputeFrontier(o.entityRegistry)
-		contextInput := &agent.PhaseContextInput{
+		contextInput := &phase.PhaseContextInput{
 			PhaseName:      phaseDef.Name,
 			Objective:      phaseDef.Objective,
 			Contract:       contract,
@@ -181,7 +181,7 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 		_ = contextInput
 
 		// Check if phase contract is satisfied
-		phaseCtx := &agent.PhaseContext{
+		phaseCtx := &phase.PhaseContext{
 			Phase:      phaseDef.Name,
 			State:      state,
 			Blackboard: o.blackboard,
@@ -223,7 +223,7 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 	}
 
 	// Validate final contract
-	phaseCtx := &agent.PhaseContext{
+	phaseCtx := &phase.PhaseContext{
 		Phase:      phaseDef.Name,
 		State:      state,
 		Blackboard: o.blackboard,
@@ -277,8 +277,8 @@ func (o *Orchestrator) checkDependencies(phaseDef *PhaseDefinition) error {
 }
 
 // createContract creates a phase contract from definition
-func (o *Orchestrator) createContract(phaseDef *PhaseDefinition) *agent.PhaseContract {
-	contract := agent.NewPhaseContract(phaseDef.Name).
+func (o *Orchestrator) createContract(phaseDef *PhaseDefinition) *phase.PhaseContract {
+	contract := phase.NewPhaseContract(phaseDef.Name).
 		SetIterationLimits(phaseDef.MinIterations, phaseDef.MaxIterations)
 
 	// Add required tools
@@ -292,7 +292,7 @@ func (o *Orchestrator) createContract(phaseDef *PhaseDefinition) *agent.PhaseCon
 	}
 
 	// Try to get predefined contract and merge with definition
-	if predefined, err := agent.GetPredefinedContract(phaseDef.Name); err == nil {
+	if predefined, err := phase.GetPredefinedContract(phaseDef.Name); err == nil {
 		// Merge validation rules from predefined contract
 		for _, rule := range predefined.SuccessCriteria {
 			contract.AddValidationRule(rule)
