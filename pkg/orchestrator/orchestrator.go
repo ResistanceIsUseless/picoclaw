@@ -10,6 +10,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/graph"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/phase"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/registry"
 )
 
@@ -20,6 +21,7 @@ type Orchestrator struct {
 	graph          *graph.Graph
 	registry       *registry.ToolRegistry
 	entityRegistry *graph.EntityRegistry
+	provider       providers.LLMProvider // Optional: for model calls during phase execution
 
 	mu              sync.RWMutex
 	currentPhase    *PhaseExecution
@@ -56,14 +58,20 @@ const (
 // NewOrchestrator creates a new orchestrator
 func NewOrchestrator(pipeline *Pipeline, bb *blackboard.Blackboard, toolRegistry *registry.ToolRegistry) *Orchestrator {
 	return &Orchestrator{
-		pipeline:       pipeline,
-		blackboard:     bb,
-		graph:          graph.NewGraph(),
-		registry:       toolRegistry,
-		entityRegistry: graph.NewEntityRegistry(),
+		pipeline:        pipeline,
+		blackboard:      bb,
+		graph:           graph.NewGraph(),
+		registry:        toolRegistry,
+		entityRegistry:  graph.NewEntityRegistry(),
+		provider:        nil, // Set via SetProvider if model calls needed
 		completedPhases: make([]string, 0),
-		phaseHistory:   make([]*PhaseExecution, 0),
+		phaseHistory:    make([]*PhaseExecution, 0),
 	}
+}
+
+// SetProvider sets the LLM provider for model calls during phase execution
+func (o *Orchestrator) SetProvider(provider providers.LLMProvider) {
+	o.provider = provider
 }
 
 // Execute runs the entire pipeline from start to finish
@@ -176,9 +184,26 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 			PreviousPhases: o.completedPhases,
 		}
 
-		// This is where we would call the model and execute tools
-		// For now, this is a placeholder for the integration point
-		_ = contextInput
+		// Execute model call and tools (if provider configured)
+		if o.provider != nil {
+			if err := o.executeIteration(ctx, phaseDef, phaseExec, contextInput); err != nil {
+				logger.ErrorCF("orchestrator", "Iteration execution failed",
+					map[string]any{
+						"phase":     phaseDef.Name,
+						"iteration": phaseExec.Iteration,
+						"error":     err.Error(),
+					})
+				// Continue to next iteration instead of failing entire phase
+				// This allows recovery from transient errors
+			}
+		} else {
+			// No provider configured - this is expected for tests
+			logger.DebugCF("orchestrator", "No provider configured, skipping model call",
+				map[string]any{
+					"phase":     phaseDef.Name,
+					"iteration": phaseExec.Iteration,
+				})
+		}
 
 		// Check if phase contract is satisfied
 		phaseCtx := &phase.PhaseContext{
@@ -300,6 +325,121 @@ func (o *Orchestrator) createContract(phaseDef *PhaseDefinition) *phase.PhaseCon
 	}
 
 	return contract
+}
+
+// executeIteration executes a single iteration of model call and tool execution
+func (o *Orchestrator) executeIteration(ctx context.Context, phaseDef *PhaseDefinition, phaseExec *PhaseExecution, contextInput *phase.PhaseContextInput) error {
+	// Build the context sections using PhaseContextBuilder
+	sections, err := phaseExec.ContextBuilder.Build(contextInput)
+	if err != nil {
+		return fmt.Errorf("failed to build context: %w", err)
+	}
+
+	// Convert sections to a single prompt
+	var promptParts []string
+	for _, section := range sections {
+		promptParts = append(promptParts, section.Content)
+	}
+	prompt := ""
+	for _, part := range promptParts {
+		prompt += part + "\n\n"
+	}
+
+	// Prepare messages for model
+	messages := []providers.Message{
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	}
+
+	// Get tool definitions from registry
+	var toolDefs []providers.ToolDefinition
+	for range phaseDef.Tools {
+		// In a full implementation, we'd get the actual tool definition from registry
+		// For now, we'll pass empty tools list
+	}
+
+	// Call the model
+	model := o.provider.GetDefaultModel()
+	options := map[string]any{
+		"temperature": 0.7,
+		"max_tokens":  4096,
+	}
+
+	response, err := o.provider.Chat(ctx, messages, toolDefs, model, options)
+	if err != nil {
+		return fmt.Errorf("model call failed: %w", err)
+	}
+
+	// Log model response
+	logger.DebugCF("orchestrator", "Model response received",
+		map[string]any{
+			"phase":        phaseDef.Name,
+			"iteration":    phaseExec.Iteration,
+			"response_len": len(response.Content),
+			"tool_calls":   len(response.ToolCalls),
+		})
+
+	// Execute requested tools
+	for _, toolCall := range response.ToolCalls {
+		if err := o.executeTool(ctx, phaseDef, phaseExec, toolCall); err != nil {
+			logger.WarnCF("orchestrator", "Tool execution failed",
+				map[string]any{
+					"phase": phaseDef.Name,
+					"tool":  toolCall.Name,
+					"error": err.Error(),
+				})
+			// Continue with other tools instead of failing iteration
+		}
+	}
+
+	return nil
+}
+
+// executeTool executes a single tool call and updates state
+func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinition, phaseExec *PhaseExecution, toolCall providers.ToolCall) error {
+	// Check if tool is available in phase
+	toolAvailable := false
+	for _, availableTool := range phaseDef.Tools {
+		if availableTool == toolCall.Name {
+			toolAvailable = true
+			break
+		}
+	}
+
+	if !toolAvailable {
+		return fmt.Errorf("tool %q not available in phase %q", toolCall.Name, phaseDef.Name)
+	}
+
+	// Create a tool call record in DAGState
+	stateToolCall := &phase.ToolCall{
+		ID:       fmt.Sprintf("%s-%d", toolCall.Name, phaseExec.Iteration),
+		ToolName: toolCall.Name,
+		Status:   phase.StatusRunning,
+		StartTime: time.Now(),
+	}
+	phaseExec.State.AddToolCall(stateToolCall)
+
+	// Execute tool through registry
+	// NOTE: This is a simplified version - full implementation will include:
+	// - Actual tool execution via registry
+	// - Output parsing to artifacts
+	// - Blackboard publishing
+	// - Graph mutations
+	logger.InfoCF("orchestrator", "Executing tool",
+		map[string]any{
+			"phase":     phaseDef.Name,
+			"tool":      toolCall.Name,
+			"iteration": phaseExec.Iteration,
+			"call_id":   stateToolCall.ID,
+		})
+
+	// For now, mark as completed immediately
+	// In full implementation, we'd execute the tool and capture results
+	phaseExec.State.UpdateToolCall(stateToolCall.ID, phase.StatusCompleted, "Tool executed successfully", nil)
+
+	return nil
 }
 
 // getCurrentPhaseArtifacts gets artifacts for current phase

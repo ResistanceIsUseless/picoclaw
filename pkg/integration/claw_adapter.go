@@ -66,6 +66,9 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 	// Create orchestrator
 	orch := orchestrator.NewOrchestrator(pipeline, bb, toolRegistry)
 
+	// Set provider for model calls
+	orch.SetProvider(provider)
+
 	logger.InfoCF("claw", "CLAW adapter initialized",
 		map[string]any{
 			"pipeline":        pipeline.Name,
