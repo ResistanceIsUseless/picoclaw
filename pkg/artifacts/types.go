@@ -7,6 +7,20 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/blackboard"
 )
 
+// Artifact type constants
+const (
+	ArtifactOperatorTarget      = "OperatorTarget"
+	ArtifactPipelineSummary     = "PipelineSummary"
+	ArtifactVulnerabilityList   = "VulnerabilityList"
+	ArtifactExploitResult       = "ExploitResult"
+	ArtifactFinalReport         = "FinalReport"
+	ArtifactSubdomainList       = "SubdomainList"
+	ArtifactPortScanResult      = "PortScanResult"
+	ArtifactServiceFingerprint  = "ServiceFingerprint"
+	ArtifactWebFindings         = "WebFindings"
+	ArtifactCloudFindings       = "CloudFindings"
+)
+
 // Common artifact types used across all domains
 
 // OperatorTarget is the initial input from the operator
