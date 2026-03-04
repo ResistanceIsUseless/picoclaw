@@ -1,8 +1,10 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 
 	"github.com/ResistanceIsUseless/picoclaw/pkg/parsers"
@@ -70,7 +72,9 @@ func RegisterSecurityTools(registry *ToolRegistry) error {
 				"required": []string{"target"},
 			},
 			OutputType: "PortScanResult",
-			Parser:     nil, // TODO: Implement nmap parser
+			Parser: func(toolName string, output []byte) (interface{}, error) {
+				return parsers.ParseNmapXMLOutput(toolName, output, "port_scan")
+			},
 		},
 		{
 			Name:        "httpx",
@@ -89,8 +93,10 @@ func RegisterSecurityTools(registry *ToolRegistry) error {
 				},
 				"required": []string{"targets"},
 			},
-			OutputType: "ServiceFingerprint",
-			Parser:     nil, // TODO: Implement httpx parser
+			OutputType: "WebFindings",
+			Parser: func(toolName string, output []byte) (interface{}, error) {
+				return parsers.ParseHTTPXOutput(toolName, output, "quick_scan")
+			},
 		},
 		{
 			Name:        "nuclei",
@@ -112,7 +118,9 @@ func RegisterSecurityTools(registry *ToolRegistry) error {
 				"required": []string{"target"},
 			},
 			OutputType: "VulnerabilityList",
-			Parser:     nil, // TODO: Implement nuclei parser
+			Parser: func(toolName string, output []byte) (interface{}, error) {
+				return parsers.ParseNucleiToWebFindings(toolName, output, "quick_scan")
+			},
 		},
 	}
 
@@ -159,14 +167,38 @@ func ExecuteTool(ctx context.Context, toolName string, args map[string]interface
 		if p, ok := args["ports"].(string); ok {
 			ports = p
 		}
-		// Simple nmap scan
-		cmd := exec.CommandContext(ctx, "nmap", "-p", ports, target)
+		// nmap with XML output for parsing
+		cmd := exec.CommandContext(ctx, "nmap", "-p", ports, "-oX", "-", target)
 		return cmd.Output()
 
 	case "httpx":
-		// httpx typically reads from stdin or file
-		// For now, return placeholder
-		return nil, fmt.Errorf("httpx execution not yet implemented")
+		targets, ok := args["targets"].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("httpx requires 'targets' parameter as array")
+		}
+
+		// Convert targets to strings
+		var targetList bytes.Buffer
+		for _, t := range targets {
+			if target, ok := t.(string); ok {
+				targetList.WriteString(target + "\n")
+			}
+		}
+
+		// Run httpx with JSON output, piping targets to stdin
+		cmd := exec.CommandContext(ctx, "httpx", "-json", "-silent")
+		cmd.Stdin = &targetList
+
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("httpx execution failed: %w (stderr: %s)", err, stderr.String())
+		}
+
+		return stdout.Bytes(), nil
 
 	case "nuclei":
 		target, ok := args["target"].(string)
@@ -177,7 +209,8 @@ func ExecuteTool(ctx context.Context, toolName string, args map[string]interface
 		if s, ok := args["severity"].(string); ok {
 			severity = s
 		}
-		cmd := exec.CommandContext(ctx, "nuclei", "-u", target, "-severity", severity, "-silent")
+		// nuclei with JSON output for parsing
+		cmd := exec.CommandContext(ctx, "nuclei", "-u", target, "-severity", severity, "-json", "-silent")
 		return cmd.Output()
 
 	default:

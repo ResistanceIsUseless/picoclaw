@@ -17,6 +17,11 @@ func DefaultConfig() *Config {
 				MaxTokens:           8192,
 				Temperature:         nil, // nil means use provider default
 				MaxToolIterations:   20,
+				CLAWMode: &CLAWConfig{
+					Enabled:        true,
+					Pipeline:       "web_quick",
+					PersistenceDir: "~/.picoclaw/blackboard",
+				},
 			},
 		},
 		Bindings: []AgentBinding{},
