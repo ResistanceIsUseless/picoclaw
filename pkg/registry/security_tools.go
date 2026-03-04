@@ -128,6 +128,11 @@ func RegisterSecurityTools(registry *ToolRegistry) error {
 // ExecuteTool executes a security tool and returns raw output
 // This is a simple implementation that runs tools via exec
 func ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) ([]byte, error) {
+	// Check for mock tools first (for testing)
+	if len(toolName) > 5 && toolName[:5] == "mock_" {
+		return ExecuteMockTool(ctx, toolName, args)
+	}
+
 	switch toolName {
 	case "subfinder":
 		domain, ok := args["domain"].(string)

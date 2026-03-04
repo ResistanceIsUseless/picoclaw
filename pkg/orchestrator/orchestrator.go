@@ -525,10 +525,29 @@ func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinitio
 				}
 
 				artifactSummary = fmt.Sprintf("Artifact: %s", toolDef.OutputType)
-			}
 
-			// 6. TODO: Update knowledge graph with tool results
-			// For now, skip graph mutations - will implement in next step
+				// 6. Update knowledge graph with tool results
+				mutation, err := graph.ExtractMutation(artifactEnvelope)
+				if err != nil {
+					logger.WarnCF("orchestrator", "Failed to extract graph mutation",
+						map[string]any{
+							"phase": phaseDef.Name,
+							"tool":  toolCall.Name,
+							"error": err.Error(),
+						})
+				} else if mutation != nil && (len(mutation.Nodes) > 0 || len(mutation.Edges) > 0) {
+					// Apply mutation to graph
+					o.graph.ApplyMutation(mutation)
+
+					logger.InfoCF("orchestrator", "Graph updated",
+						map[string]any{
+							"phase": phaseDef.Name,
+							"tool":  toolCall.Name,
+							"nodes": len(mutation.Nodes),
+							"edges": len(mutation.Edges),
+						})
+				}
+			}
 		}
 	} else {
 		// No parser available - store raw output summary
