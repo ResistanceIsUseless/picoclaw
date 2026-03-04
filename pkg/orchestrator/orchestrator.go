@@ -355,10 +355,40 @@ func (o *Orchestrator) executeIteration(ctx context.Context, phaseDef *PhaseDefi
 
 	// Get tool definitions from registry
 	var toolDefs []providers.ToolDefinition
-	for range phaseDef.Tools {
-		// In a full implementation, we'd get the actual tool definition from registry
-		// For now, we'll pass empty tools list
+	for _, toolName := range phaseDef.Tools {
+		toolDef, err := o.registry.Get(toolName)
+		if err != nil {
+			logger.WarnCF("orchestrator", "Tool not found in registry",
+				map[string]any{
+					"phase": phaseDef.Name,
+					"tool":  toolName,
+				})
+			continue
+		}
+
+		// Skip Tier 0 (Hardwired) tools - they're invisible to the model
+		if toolDef.Tier == registry.TierHardwired {
+			continue
+		}
+
+		// Convert registry ToolDefinition to providers.ToolDefinition
+		providerToolDef := providers.ToolDefinition{
+			Type: "function",
+			Function: providers.ToolFunctionDefinition{
+				Name:        toolDef.Name,
+				Description: toolDef.Description,
+				Parameters:  toolDef.InputSchema,
+			},
+		}
+		toolDefs = append(toolDefs, providerToolDef)
 	}
+
+	logger.DebugCF("orchestrator", "Tool definitions prepared",
+		map[string]any{
+			"phase":      phaseDef.Name,
+			"total_tools": len(phaseDef.Tools),
+			"visible_tools": len(toolDefs),
+		})
 
 	// Call the model
 	model := o.provider.GetDefaultModel()
