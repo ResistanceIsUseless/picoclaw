@@ -44,6 +44,7 @@ type RelationType string
 
 const (
 	// Web/Network relationships
+	RelationSubdomainOf    RelationType = "subdomain_of"    // subdomain -> domain
 	RelationResolvesTo     RelationType = "resolves_to"     // domain -> IP
 	RelationHostsService   RelationType = "hosts_service"   // IP -> service
 	RelationExposesPort    RelationType = "exposes_port"    // IP -> port
