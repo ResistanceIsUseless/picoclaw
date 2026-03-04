@@ -421,12 +421,6 @@ func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinitio
 	}
 	phaseExec.State.AddToolCall(stateToolCall)
 
-	// Execute tool through registry
-	// NOTE: This is a simplified version - full implementation will include:
-	// - Actual tool execution via registry
-	// - Output parsing to artifacts
-	// - Blackboard publishing
-	// - Graph mutations
 	logger.InfoCF("orchestrator", "Executing tool",
 		map[string]any{
 			"phase":     phaseDef.Name,
@@ -435,9 +429,91 @@ func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinitio
 			"call_id":   stateToolCall.ID,
 		})
 
-	// For now, mark as completed immediately
-	// In full implementation, we'd execute the tool and capture results
-	phaseExec.State.UpdateToolCall(stateToolCall.ID, phase.StatusCompleted, "Tool executed successfully", nil)
+	// 1. Get tool definition from registry
+	toolDef, err := o.registry.Get(toolCall.Name)
+	if err != nil {
+		phaseExec.State.UpdateToolCall(stateToolCall.ID, phase.StatusFailed, "", fmt.Errorf("tool not found: %w", err))
+		return fmt.Errorf("failed to get tool %q: %w", toolCall.Name, err)
+	}
+
+	// 2. Get tool arguments (already parsed by provider)
+	args := toolCall.Arguments
+	if args == nil {
+		args = make(map[string]interface{})
+	}
+
+	// 3. Execute tool
+	rawOutput, err := registry.ExecuteTool(ctx, toolCall.Name, args)
+	if err != nil {
+		logger.ErrorCF("orchestrator", "Tool execution failed",
+			map[string]any{
+				"phase": phaseDef.Name,
+				"tool":  toolCall.Name,
+				"error": err.Error(),
+			})
+		phaseExec.State.UpdateToolCall(stateToolCall.ID, phase.StatusFailed, "", err)
+		return fmt.Errorf("tool execution failed: %w", err)
+	}
+
+	logger.DebugCF("orchestrator", "Tool execution completed",
+		map[string]any{
+			"phase":       phaseDef.Name,
+			"tool":        toolCall.Name,
+			"output_size": len(rawOutput),
+		})
+
+	// 4. Parse output to artifacts (if parser available)
+	var artifactSummary string
+	if toolDef.Parser != nil {
+		artifact, err := toolDef.Parser(toolCall.Name, rawOutput)
+		if err != nil {
+			logger.WarnCF("orchestrator", "Tool output parsing failed",
+				map[string]any{
+					"phase": phaseDef.Name,
+					"tool":  toolCall.Name,
+					"error": err.Error(),
+				})
+			// Continue despite parsing failure - tool executed successfully
+			artifactSummary = fmt.Sprintf("Raw output: %d bytes", len(rawOutput))
+		} else {
+			// 5. Publish artifact to blackboard
+			if artifactEnvelope, ok := artifact.(blackboard.Artifact); ok {
+				if err := o.blackboard.Publish(ctx, artifactEnvelope); err != nil {
+					logger.WarnCF("orchestrator", "Failed to publish artifact",
+						map[string]any{
+							"phase": phaseDef.Name,
+							"tool":  toolCall.Name,
+							"error": err.Error(),
+						})
+				} else {
+					logger.InfoCF("orchestrator", "Artifact published",
+						map[string]any{
+							"phase": phaseDef.Name,
+							"tool":  toolCall.Name,
+							"type":  toolDef.OutputType,
+						})
+				}
+
+				artifactSummary = fmt.Sprintf("Artifact: %s", toolDef.OutputType)
+			}
+
+			// 6. TODO: Update knowledge graph with tool results
+			// For now, skip graph mutations - will implement in next step
+		}
+	} else {
+		// No parser available - store raw output summary
+		artifactSummary = fmt.Sprintf("Raw output: %d bytes (no parser)", len(rawOutput))
+	}
+
+	// 7. Update DAGState status
+	phaseExec.State.UpdateToolCall(stateToolCall.ID, phase.StatusCompleted, artifactSummary, nil)
+
+	logger.InfoCF("orchestrator", "Tool execution complete",
+		map[string]any{
+			"phase":   phaseDef.Name,
+			"tool":    toolCall.Name,
+			"summary": artifactSummary,
+		})
 
 	return nil
 }
