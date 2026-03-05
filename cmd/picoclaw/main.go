@@ -23,6 +23,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/skills"
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/status"
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/version"
+	pkgConfig "github.com/ResistanceIsUseless/picoclaw/pkg/config"
 )
 
 func NewPicoclawCommand() *cobra.Command {
@@ -51,8 +52,52 @@ func NewPicoclawCommand() *cobra.Command {
 }
 
 func main() {
+	// Check if first-run setup is needed
+	if err := ensureConfigured(); err != nil {
+		fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
+		os.Exit(1)
+	}
+
 	cmd := NewPicoclawCommand()
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// ensureConfigured checks if config exists and is valid, runs wizard if needed
+func ensureConfigured() error {
+	cfgPath := internal.GetConfigPath()
+
+	// Check if config file exists
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		// First run - trigger wizard
+		return onboard.RunSetupWizard()
+	}
+
+	// Config exists - validate quality
+	cfg, err := internal.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Config load error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "  Run 'picoclaw onboard' to recreate config\n\n")
+		return nil // Don't block, allow other commands
+	}
+
+	// Validate and display warnings
+	warnings := pkgConfig.ValidateConfigQuality(cfg)
+	for _, w := range warnings {
+		if w.Level == "error" {
+			fmt.Fprintf(os.Stderr, "❌ %s\n", w.Message)
+			fmt.Fprintf(os.Stderr, "\n")
+			return onboard.RunSetupWizard()
+		}
+	}
+
+	// Display non-fatal warnings
+	warningText := pkgConfig.FormatWarnings(warnings)
+	if warningText != "" {
+		fmt.Print(warningText)
+		fmt.Println()
+	}
+
+	return nil
 }

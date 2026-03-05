@@ -10,27 +10,35 @@ import (
 
 	"github.com/ResistanceIsUseless/picoclaw/pkg/artifacts"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/blackboard"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/orchestrator"
-	anthropicprovider "github.com/ResistanceIsUseless/picoclaw/pkg/providers/anthropic"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/registry"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/webui"
 )
 
 func main() {
 	// Parse command line flags
 	target := flag.String("target", "", "Target domain (e.g., careers.draftkings.com)")
 	pipelineName := flag.String("pipeline", "web_quick", "Pipeline to use (web_quick or web_full)")
-	apiKey := flag.String("api-key", os.Getenv("ANTHROPIC_API_KEY"), "Anthropic API key")
+	apiKey := flag.String("api-key", "", "API key (auto-detects from env: ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, etc.)")
+	model := flag.String("model", "claude-sonnet-4.6", "Model to use (claude-sonnet-4.6, gpt-4, deepseek-chat, gemini-2.0-flash, etc.)")
+	provider := flag.String("provider", "", "Provider (anthropic, openai, openrouter, gemini, deepseek, groq, lmstudio, etc.)")
+	apiBase := flag.String("api-base", "", "API base URL (for LM Studio, custom endpoints, etc.)")
+	configFile := flag.String("config", "", "Config file with multi-model routing (optional - enables fallbacks and tier routing)")
 	persistDir := flag.String("persist-dir", filepath.Join(os.Getenv("HOME"), ".picoclaw-test", "blackboard"), "Blackboard persistence directory")
 	dryRun := flag.Bool("dry-run", false, "Dry run - show what would be executed without calling LLM")
+	webUI := flag.String("webui", "", "Enable web UI on specified address (e.g., :8080 or localhost:8080)")
 	flag.Parse()
 
 	if *target == "" {
 		fmt.Println("Usage: test-claw -target <domain>")
-		fmt.Println("\nExample:")
+		fmt.Println("\nExamples:")
 		fmt.Println("  test-claw -target careers.draftkings.com")
 		fmt.Println("  test-claw -target careers.draftkings.com -pipeline web_full")
 		fmt.Println("  test-claw -target example.com -dry-run")
+		fmt.Println("  test-claw -target example.com -webui :8080")
 		fmt.Println("\nEnvironment variables:")
 		fmt.Println("  ANTHROPIC_API_KEY - Required for LLM calls (unless -dry-run)")
 		fmt.Println("  PATH - Must include ~/go/bin for security tools")
@@ -79,13 +87,13 @@ func main() {
 	bb := blackboard.New(persister)
 	fmt.Printf("✓ Blackboard initialized: %s\n", *persistDir)
 
-	// Create tool registry and register security tools
+	// Create tool registry and register all available tools
 	toolRegistry := registry.NewToolRegistry()
-	if err := registry.RegisterSecurityTools(toolRegistry); err != nil {
-		fmt.Printf("✗ Failed to register security tools: %v\n", err)
+	if err := registry.RegisterAllTools(toolRegistry); err != nil {
+		fmt.Printf("✗ Failed to register tools: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✓ Security tools registered: 5 tools\n")
+	fmt.Printf("✓ Tools registered: 44+ security tools + shell tool\n")
 
 	// Load pipeline
 	pipeline, err := orchestrator.GetPredefinedPipeline(*pipelineName)
@@ -99,17 +107,100 @@ func main() {
 	orch := orchestrator.NewOrchestrator(pipeline, bb, toolRegistry)
 	fmt.Printf("✓ Orchestrator created\n")
 
+	// Setup web UI (if enabled)
+	var webuiServer *webui.Server
+	if *webUI != "" {
+		webuiServer = webui.NewServer(orch, bb, orch.GetGraph(), toolRegistry)
+
+		// Set event emitter for real-time updates
+		orch.SetEventEmitter(webuiServer.GetEventEmitter())
+
+		fmt.Printf("✓ Web UI configured: http://%s\n", *webUI)
+
+		// Start web server in background
+		go func() {
+			fmt.Printf("Starting web UI server on %s...\n", *webUI)
+			if err := webuiServer.Start(*webUI); err != nil {
+				fmt.Printf("⚠ Web UI server error: %v\n", err)
+			}
+		}()
+
+		// Give server a moment to start
+		time.Sleep(500 * time.Millisecond)
+	}
+
 	// Setup provider (if not dry run)
 	if !*dryRun {
-		if *apiKey == "" {
-			fmt.Println("\n✗ ANTHROPIC_API_KEY required for live mode")
-			fmt.Println("  Set with: export ANTHROPIC_API_KEY=your-key")
-			fmt.Println("  Or use: -dry-run flag")
-			os.Exit(1)
+		var cfg *config.Config
+		var llmProvider providers.LLMProvider
+		var err error
+
+		// Mode 1: Load full config file (enables multi-model routing, fallbacks, tiers)
+		if *configFile != "" {
+			fmt.Printf("Loading config from: %s\n", *configFile)
+			cfg, err = config.LoadConfig(*configFile)
+			if err != nil {
+				fmt.Printf("\n✗ Failed to load config: %v\n", err)
+				os.Exit(1)
+			}
+			llmProvider, _, err = providers.CreateProvider(cfg)
+			if err != nil {
+				fmt.Printf("\n✗ Failed to create provider from config: %v\n", err)
+				os.Exit(1)
+			}
+
+			primaryModel := cfg.Agents.Defaults.GetModelName()
+			fmt.Printf("✓ LLM provider configured from config\n")
+			fmt.Printf("  Primary model: %s\n", primaryModel)
+			if routing := cfg.Routing; routing.Enabled && len(routing.Tiers) > 0 {
+				fmt.Printf("  Multi-model routing: ENABLED (%d tiers)\n", len(routing.Tiers))
+				for tierName, tier := range routing.Tiers {
+					fmt.Printf("    - %s: %s (for %v)\n", tierName, tier.ModelName, tier.UseFor)
+				}
+			}
+			// Check for fallback models
+			if len(cfg.Agents.Defaults.ModelFallbacks) > 0 {
+				fmt.Printf("  Fallback models: %v\n", cfg.Agents.Defaults.ModelFallbacks)
+			}
+		} else {
+			// Mode 2: Simple single-model configuration (backward compatible)
+			// Auto-detect API key from environment if not provided
+			if *apiKey == "" {
+				*apiKey = detectAPIKey()
+			}
+
+			if *apiKey == "" {
+				fmt.Println("\n✗ No API key found")
+				fmt.Println("  Set environment variable:")
+				fmt.Println("    export ANTHROPIC_API_KEY=your-key   (for Claude)")
+				fmt.Println("    export OPENAI_API_KEY=your-key      (for GPT)")
+				fmt.Println("    export OPENROUTER_API_KEY=your-key  (for OpenRouter)")
+				fmt.Println("    export GEMINI_API_KEY=your-key      (for Gemini)")
+				fmt.Println("  Or use: -api-key flag")
+				fmt.Println("  Or use: -config flag for multi-model support")
+				fmt.Println("  Or use: -dry-run flag")
+				os.Exit(1)
+			}
+
+			// Build minimal config for provider factory
+			cfg = buildProviderConfig(*provider, *apiKey, *apiBase, *model)
+
+			// Create provider using factory
+			llmProvider, _, err = providers.CreateProvider(cfg)
+			if err != nil {
+				fmt.Printf("\n✗ Failed to create provider: %v\n", err)
+				os.Exit(1)
+			}
+
+			providerName := *provider
+			if providerName == "" {
+				providerName = detectProviderFromModel(*model)
+			}
+			fmt.Printf("✓ LLM provider configured: %s (model: %s)\n", providerName, *model)
+			fmt.Printf("  Tip: Use -config flag for multi-model routing and fallbacks\n")
 		}
-		provider := anthropicprovider.NewProvider(*apiKey)
-		orch.SetProvider(provider)
-		fmt.Printf("✓ LLM provider configured: Anthropic (Claude)\n")
+
+		orch.SetProvider(llmProvider)
 	} else {
 		fmt.Printf("⚠ Dry run mode - no LLM provider\n")
 	}

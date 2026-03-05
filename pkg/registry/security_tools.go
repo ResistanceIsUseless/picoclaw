@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os/exec"
 
 	"github.com/ResistanceIsUseless/picoclaw/pkg/parsers"

@@ -19,6 +19,7 @@ const (
 	ArtifactServiceFingerprint  = "ServiceFingerprint"
 	ArtifactWebFindings         = "WebFindings"
 	ArtifactCloudFindings       = "CloudFindings"
+	ArtifactToolOutput          = "ToolOutput"
 )
 
 // Common artifact types used across all domains
@@ -190,3 +191,40 @@ func (f *FinalReport) Validate() error {
 }
 
 func (f *FinalReport) GetMetadata() blackboard.ArtifactMetadata { return f.Metadata }
+
+// ToolOutput is a generic artifact for tools without specific structural parsers
+// Used by Layer 2 LLM parser when no specialized artifact type is defined
+type ToolOutput struct {
+	Metadata blackboard.ArtifactMetadata `json:"metadata"`
+
+	ToolName string                 `json:"tool_name"`
+	Data     map[string]interface{} `json:"data"` // Flexible structure for any tool output
+}
+
+func (t *ToolOutput) Type() string { return "ToolOutput" }
+
+func (t *ToolOutput) Validate() error {
+	if t.ToolName == "" {
+		return fmt.Errorf("tool_name cannot be empty")
+	}
+	if t.Data == nil {
+		return fmt.Errorf("data cannot be nil")
+	}
+	return nil
+}
+
+func (t *ToolOutput) GetMetadata() blackboard.ArtifactMetadata { return t.Metadata }
+
+// NewToolOutput creates a generic tool output artifact
+func NewToolOutput(toolName string, data map[string]interface{}, phase string) *ToolOutput {
+	return &ToolOutput{
+		Metadata: blackboard.ArtifactMetadata{
+			Type:      "ToolOutput",
+			Phase:     phase,
+			Domain:    "generic",
+			CreatedAt: time.Now(),
+		},
+		ToolName: toolName,
+		Data:     data,
+	}
+}

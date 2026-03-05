@@ -1,0 +1,113 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.picoclaw-test/workspace",
+      "restrict_to_workspace": false,
+      "model_name": "claude-sonnet-4.6",
+      "model_fallbacks": [
+        "gpt-4",
+        "deepseek-chat"
+      ],
+      "max_tokens": 4096,
+      "temperature": 0.7,
+      "max_tool_iterations": 10,
+      "claw": {
+        "enabled": true,
+        "pipeline": "web_quick",
+        "persistence_dir": "~/.picoclaw-test/blackboard"
+      }
+    }
+  },
+  "model_list": [
+    {
+      "vendor": "anthropic",
+      "model": "claude-sonnet-4.6",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    {
+      "vendor": "openai",
+      "model": "gpt-4",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    {
+      "vendor": "deepseek",
+      "model": "deepseek-chat",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_base": "https://api.deepseek.com/v1"
+    },
+    {
+      "vendor": "openrouter",
+      "model": "anthropic/claude-3.5-sonnet",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "api_base": "https://openrouter.ai/api/v1"
+    },
+    {
+      "vendor": "gemini",
+      "model": "gemini-2.0-flash",
+      "api_key_env": "GEMINI_API_KEY"
+    }
+  ],
+  "routing": {
+    "enabled": true,
+    "default_tier": "standard",
+    "tiers": {
+      "planning": {
+        "model_name": "claude-sonnet-4.6",
+        "use_for": ["planning", "strategy", "methodology"],
+        "cost_per_m": {
+          "input": 3.0,
+          "output": 15.0
+        }
+      },
+      "standard": {
+        "model_name": "gpt-4",
+        "use_for": ["analysis", "reasoning", "decision"],
+        "cost_per_m": {
+          "input": 2.5,
+          "output": 10.0
+        }
+      },
+      "fast": {
+        "model_name": "deepseek-chat",
+        "use_for": ["parsing", "extraction", "classification"],
+        "cost_per_m": {
+          "input": 0.14,
+          "output": 0.28
+        }
+      }
+    },
+    "enable_supervision": true,
+    "supervisor_tier": "planning",
+    "validation_confidence_threshold": 0.8,
+    "min_task_complexity_for_supervision": 7
+  },
+  "providers": {
+    "anthropic": {
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    "openai": {
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "deepseek": {
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_base": "https://api.deepseek.com/v1"
+    },
+    "openrouter": {
+      "api_key_env": "OPENROUTER_API_KEY",
+      "api_base": "https://openrouter.ai/api/v1"
+    },
+    "gemini": {
+      "api_key_env": "GEMINI_API_KEY"
+    }
+  },
+  "session": {
+    "dm_scope": "user"
+  },
+  "channels": {},
+  "tools": {
+    "web": {}
+  },
+  "heartbeat": {
+    "enabled": false
+  }
+}

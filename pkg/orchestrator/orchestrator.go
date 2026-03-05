@@ -9,10 +9,22 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/blackboard"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/graph"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/parsers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/phase"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/registry"
 )
+
+// EventEmitter interface for sending events to web UI (defined in pkg/webui)
+// Using interface to avoid circular dependency
+type EventEmitter interface {
+	EmitPhaseStart(phaseName string, objective string, iteration int)
+	EmitPhaseComplete(phaseName string, status string, iteration int, duration string)
+	EmitToolExecution(tool string, status string, summary string)
+	EmitArtifact(artifactType string, phase string, count int)
+	EmitGraphUpdate(mutation *graph.GraphMutation)
+	EmitLog(level string, component string, message string, fields map[string]any)
+}
 
 // Orchestrator manages the lifecycle of phases in the CLAW pipeline
 type Orchestrator struct {
@@ -22,6 +34,8 @@ type Orchestrator struct {
 	registry       *registry.ToolRegistry
 	entityRegistry *graph.EntityRegistry
 	provider       providers.LLMProvider // Optional: for model calls during phase execution
+	llmParser      *parsers.LLMParser    // Layer 2 compression: LLM-based parser for tools without structural parsers
+	eventEmitter   EventEmitter          // Optional: for web UI event streaming
 
 	mu              sync.RWMutex
 	currentPhase    *PhaseExecution
@@ -72,6 +86,15 @@ func NewOrchestrator(pipeline *Pipeline, bb *blackboard.Blackboard, toolRegistry
 // SetProvider sets the LLM provider for model calls during phase execution
 func (o *Orchestrator) SetProvider(provider providers.LLMProvider) {
 	o.provider = provider
+	// Initialize LLM parser with the provider
+	if provider != nil {
+		o.llmParser = parsers.NewLLMParser(provider, "")
+	}
+}
+
+// SetEventEmitter sets the event emitter for web UI streaming
+func (o *Orchestrator) SetEventEmitter(emitter EventEmitter) {
+	o.eventEmitter = emitter
 }
 
 // Execute runs the entire pipeline from start to finish
@@ -159,6 +182,11 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 	o.currentPhase = phaseExec
 	o.mu.Unlock()
 
+	// Emit phase start event
+	if o.eventEmitter != nil {
+		o.eventEmitter.EmitPhaseStart(phaseDef.Name, phaseDef.Objective, 0)
+	}
+
 	// Execute phase iterations
 	for phaseExec.Iteration < phaseDef.MaxIterations {
 		phaseExec.Iteration++
@@ -168,6 +196,11 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 				"phase":     phaseDef.Name,
 				"iteration": phaseExec.Iteration,
 			})
+
+		// Emit iteration start
+		if o.eventEmitter != nil {
+			o.eventEmitter.EmitPhaseStart(phaseDef.Name, phaseDef.Objective, phaseExec.Iteration)
+		}
 
 		// Build context for this iteration
 		frontier := o.graph.ComputeFrontier(o.entityRegistry)
@@ -273,13 +306,24 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 	o.currentPhase = nil
 	o.mu.Unlock()
 
+	duration := phaseExec.EndTime.Sub(phaseExec.StartTime).String()
 	logger.InfoCF("orchestrator", "Phase completed",
 		map[string]any{
 			"phase":      phaseDef.Name,
 			"iterations": phaseExec.Iteration,
-			"duration":   phaseExec.EndTime.Sub(phaseExec.StartTime).String(),
+			"duration":   duration,
 			"artifacts":  len(phaseExec.Artifacts),
 		})
+
+	// Emit phase complete event
+	if o.eventEmitter != nil {
+		o.eventEmitter.EmitPhaseComplete(
+			phaseDef.Name,
+			string(phaseExec.Status),
+			phaseExec.Iteration,
+			duration,
+		)
+	}
 
 	return nil
 }
@@ -459,6 +503,11 @@ func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinitio
 			"call_id":   stateToolCall.ID,
 		})
 
+	// Emit tool execution start event
+	if o.eventEmitter != nil {
+		o.eventEmitter.EmitToolExecution(toolCall.Name, "running", "")
+	}
+
 	// 1. Get tool definition from registry
 	toolDef, err := o.registry.Get(toolCall.Name)
 	if err != nil {
@@ -492,66 +541,106 @@ func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinitio
 			"output_size": len(rawOutput),
 		})
 
-	// 4. Parse output to artifacts (if parser available)
+	// 4. Parse output to artifacts
+	var artifact interface{}
 	var artifactSummary string
+	var parseErr error
+
 	if toolDef.Parser != nil {
-		artifact, err := toolDef.Parser(toolCall.Name, rawOutput)
-		if err != nil {
-			logger.WarnCF("orchestrator", "Tool output parsing failed",
+		// Layer 1: Use structural parser if available
+		artifact, parseErr = toolDef.Parser(toolCall.Name, rawOutput)
+		if parseErr != nil {
+			logger.WarnCF("orchestrator", "Structural parser failed",
 				map[string]any{
 					"phase": phaseDef.Name,
 					"tool":  toolCall.Name,
-					"error": err.Error(),
+					"error": parseErr.Error(),
 				})
-			// Continue despite parsing failure - tool executed successfully
-			artifactSummary = fmt.Sprintf("Raw output: %d bytes", len(rawOutput))
-		} else {
-			// 5. Publish artifact to blackboard
-			if artifactEnvelope, ok := artifact.(blackboard.Artifact); ok {
-				if err := o.blackboard.Publish(ctx, artifactEnvelope); err != nil {
-					logger.WarnCF("orchestrator", "Failed to publish artifact",
-						map[string]any{
-							"phase": phaseDef.Name,
-							"tool":  toolCall.Name,
-							"error": err.Error(),
-						})
-				} else {
-					logger.InfoCF("orchestrator", "Artifact published",
-						map[string]any{
-							"phase": phaseDef.Name,
-							"tool":  toolCall.Name,
-							"type":  toolDef.OutputType,
-						})
+		}
+	}
+
+	// Layer 2: Fall back to LLM parser if no structural parser or if it failed
+	if artifact == nil && o.llmParser != nil && len(rawOutput) > 0 {
+		logger.InfoCF("orchestrator", "Using LLM parser (Layer 2 compression)",
+			map[string]any{
+				"phase": phaseDef.Name,
+				"tool":  toolCall.Name,
+			})
+
+		// Determine expected artifact type (use ToolOutput as default)
+		expectedType := toolDef.OutputType
+		if expectedType == "" {
+			expectedType = "ToolOutput"
+		}
+
+		artifact, parseErr = o.llmParser.ParseOutput(ctx, toolCall.Name, toolDef.Description, rawOutput, expectedType, phaseDef.Name)
+		if parseErr != nil {
+			logger.WarnCF("orchestrator", "LLM parser failed",
+				map[string]any{
+					"phase": phaseDef.Name,
+					"tool":  toolCall.Name,
+					"error": parseErr.Error(),
+				})
+			artifactSummary = fmt.Sprintf("Raw output: %d bytes (parsing failed)", len(rawOutput))
+		}
+	}
+
+	// 5. Publish artifact to blackboard (if we got one)
+	if artifact != nil {
+		if artifactEnvelope, ok := artifact.(blackboard.Artifact); ok {
+			if err := o.blackboard.Publish(ctx, artifactEnvelope); err != nil {
+				logger.WarnCF("orchestrator", "Failed to publish artifact",
+					map[string]any{
+						"phase": phaseDef.Name,
+						"tool":  toolCall.Name,
+						"error": err.Error(),
+					})
+			} else {
+				logger.InfoCF("orchestrator", "Artifact published",
+					map[string]any{
+						"phase": phaseDef.Name,
+						"tool":  toolCall.Name,
+						"type":  toolDef.OutputType,
+					})
+
+				// Emit artifact event
+				if o.eventEmitter != nil {
+					o.eventEmitter.EmitArtifact(toolDef.OutputType, phaseDef.Name, 1)
 				}
+			}
 
-				artifactSummary = fmt.Sprintf("Artifact: %s", toolDef.OutputType)
+			artifactSummary = fmt.Sprintf("Artifact: %s", toolDef.OutputType)
 
-				// 6. Update knowledge graph with tool results
-				mutation, err := graph.ExtractMutation(artifactEnvelope)
-				if err != nil {
-					logger.WarnCF("orchestrator", "Failed to extract graph mutation",
-						map[string]any{
-							"phase": phaseDef.Name,
-							"tool":  toolCall.Name,
-							"error": err.Error(),
-						})
-				} else if mutation != nil && (len(mutation.Nodes) > 0 || len(mutation.Edges) > 0) {
-					// Apply mutation to graph
-					o.graph.ApplyMutation(mutation)
+			// 6. Update knowledge graph with tool results
+			mutation, err := graph.ExtractMutation(artifactEnvelope)
+			if err != nil {
+				logger.WarnCF("orchestrator", "Failed to extract graph mutation",
+					map[string]any{
+						"phase": phaseDef.Name,
+						"tool":  toolCall.Name,
+						"error": err.Error(),
+					})
+			} else if mutation != nil && (len(mutation.Nodes) > 0 || len(mutation.Edges) > 0) {
+				// Apply mutation to graph
+				o.graph.ApplyMutation(mutation)
 
-					logger.InfoCF("orchestrator", "Graph updated",
-						map[string]any{
-							"phase": phaseDef.Name,
-							"tool":  toolCall.Name,
-							"nodes": len(mutation.Nodes),
-							"edges": len(mutation.Edges),
-						})
+				logger.InfoCF("orchestrator", "Graph updated",
+					map[string]any{
+						"phase": phaseDef.Name,
+						"tool":  toolCall.Name,
+						"nodes": len(mutation.Nodes),
+						"edges": len(mutation.Edges),
+					})
+
+				// Emit graph update event
+				if o.eventEmitter != nil {
+					o.eventEmitter.EmitGraphUpdate(mutation)
 				}
 			}
 		}
-	} else {
-		// No parser available - store raw output summary
-		artifactSummary = fmt.Sprintf("Raw output: %d bytes (no parser)", len(rawOutput))
+	} else if artifactSummary == "" {
+		// No artifact created and no summary set yet
+		artifactSummary = fmt.Sprintf("Raw output: %d bytes (no parser available)", len(rawOutput))
 	}
 
 	// 7. Update DAGState status
@@ -563,6 +652,11 @@ func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinitio
 			"tool":    toolCall.Name,
 			"summary": artifactSummary,
 		})
+
+	// Emit tool execution complete event
+	if o.eventEmitter != nil {
+		o.eventEmitter.EmitToolExecution(toolCall.Name, "completed", artifactSummary)
+	}
 
 	return nil
 }

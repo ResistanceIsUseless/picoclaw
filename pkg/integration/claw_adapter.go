@@ -49,9 +49,9 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 	// Initialize tool registry
 	toolRegistry := registry.NewToolRegistry()
 
-	// Register security tools
-	if err := registry.RegisterSecurityTools(toolRegistry); err != nil {
-		return nil, fmt.Errorf("failed to register security tools: %w", err)
+	// Register all available tools (44+ security tools + shell)
+	if err := registry.RegisterAllTools(toolRegistry); err != nil {
+		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
 
 	// Get pipeline
