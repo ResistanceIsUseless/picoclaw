@@ -106,28 +106,11 @@ func NewAgentInstance(
 	}
 	candidates := providers.ResolveCandidates(modelCfg, defaults.Provider)
 
-	// Initialize CLAW adapter if enabled
-	var clawAdapter *integration.CLAWAdapter
-	if defaults.CLAWMode != nil && defaults.CLAWMode.Enabled {
-		persistenceDir := defaults.CLAWMode.PersistenceDir
-		if persistenceDir == "" {
-			persistenceDir = filepath.Join(workspace, "blackboard")
-		}
-
-		adapterCfg := &integration.CLAWConfig{
-			Enabled:        true,
-			Pipeline:       defaults.CLAWMode.Pipeline,
-			PersistenceDir: persistenceDir,
-		}
-
-		adapter, err := integration.NewCLAWAdapter(adapterCfg, provider)
-		if err != nil {
-			// Log error but continue with non-CLAW mode
-			// This allows graceful degradation if CLAW setup fails
-		} else {
-			clawAdapter = adapter
-		}
-	}
+	// CLAW adapter is now created per-message when explicitly requested
+	// This allows dynamic switching between agent mode (default) and CLAW mode
+	// The config still exists for backward compatibility but adapter initialization
+	// is deferred until explicitly invoked via /claw command or claw subcommand
+	var clawAdapter *integration.CLAWAdapter = nil
 
 	return &AgentInstance{
 		ID:             agentID,

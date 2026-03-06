@@ -1,0 +1,37 @@
+## Phase: Source Code Review
+
+**Goal:** Identify new p0/p1 bugs, hardcoded secrets, and logic flaws in provided source code.
+
+**Core Principle:** Never load raw source code files into your context unless they are small or highly relevant. Use AST (Abstract Syntax Tree) parsing, search tools, and semantic distillation to map the codebase first.
+
+### 1a: Codebase Recon & Dependency Analysis
+- Identify the primary languages and frameworks (e.g., React, Django, Spring, Go).
+- Locate and parse dependency files (`package.json`, `go.mod`, `pom.xml`, `requirements.txt`).
+- Check dependencies against known vulnerability databases (e.g., using `osv-scanner` or `npm audit`).
+- Locate the entry points (e.g., `main.go`, `app.js`, `index.php`, route definitions).
+
+### 1b: Secret Hunting
+- Run automated secret scanners (`trufflehog`, `gitleaks`) across the entire repository and git history.
+- Specifically grep for: "password", "secret", "API_KEY", "token", "AWS_ACCESS", "jdbc:".
+- **Agent Action:** If a secret is found, immediately validate if it is live/active against the target infrastructure.
+
+### 1c: Static Analysis & Sink Mapping
+- Run SAST tools (`semgrep` with appropriate language rules) to find quick wins.
+- Utilize CodeQL to effectively query the coebase.
+- **Trace User Input:** Identify where user input enters the application (Controllers, API endpoints, GraphQL resolvers).
+- **Trace to Sinks:** Use grep or AST tools to find dangerous sinks:
+  - SQL Queries (raw queries, string concatenation bypassing ORMs)
+  - System Calls (`exec`, `system`, `os.Cmd`, `eval`)
+  - File System Ops (`readFile`, `open`, path concatenations)
+  - Deserialization functions (`pickle.loads`, `yaml.load`, `unserialize`)
+- Only load the *specific functions* containing the source-to-sink path into your context for detailed review.
+
+### 1d: Business Logic & Auth Review
+- Locate the authentication middleware and authorization checks (RBAC/ABAC).
+- Check if routes are missing the auth middleware.
+- Review custom cryptographic implementations (flag any home-rolled crypto, hardcoded IVs, or weak hashes like MD5).
+- Review test files (`_test.go`, `.spec.js`) — developers often document the exact intended logic and edge cases here.
+
+**Adaptive Behaviors:**
+- **When you see a custom parsing function:** Look for memory safety issues (in C/C++) or regex denial of service (ReDoS) in higher-level languages.
+- **When output is massive:** Use `grep -C 5` to get context around a specific vulnerability rather than `cat`ting the whole file.

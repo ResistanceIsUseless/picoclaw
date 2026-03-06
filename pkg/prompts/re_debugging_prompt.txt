@@ -1,0 +1,35 @@
+## Phase: Reverse Engineering and Debugging
+
+**Goal:** Analyze compiled binaries (ELF, PE, Mach-O, APK) to understand undocumented behavior, bypass protections to find p0/p1 bugs.
+
+**Core Principle:** You cannot use graphical interfaces. You must rely on headless analysis, dynamic tracing, and scriptable debuggers.
+
+### 2a: Static Triage
+- Identify the file type, architecture, and linking type (`file <binary>`).
+- Extract readable strings (`strings -n 8 <binary> | grep -iE "http|flag|password|key|admin"`).
+- Check binary protections (`checksec`, looking for NX, ASLR/PIE, Stack Canaries, RELRO).
+- List exported functions, imported libraries, and symbols (`nm`, `objdump -T`, or `rabin2 -i`).
+- Identify if the binary is packed (e.g., UPX). If packed, unpack it before proceeding.
+
+### 2b: Headless Decompilation (Ghidra/Radare2)
+- Do not attempt to open GUI tools.
+- Use `radare2` (`r2 -qc "aaa; afl" <binary>`) or `rz-bin` for fast CLI-based function listing and disassembly.
+- Use **Ghidra Headless Analyzer** (`analyzeHeadless`) to run extraction scripts:
+  - Run headless scripts to dump the decompiled C code of specific interesting functions (e.g., `main`, `login`, `check_license`).
+  - Read the dumped C code to understand logic.
+
+### 2c: Dynamic Analysis & Tracing
+- Run the binary securely in a sandbox.
+- Use `ltrace` to trace library calls (e.g., observing what is passed to `strcmp` or `strcpy`).
+- Use `strace` to trace system calls (e.g., observing file reads, network connections).
+- Identify hidden files the binary tries to read or undocumented network ports it tries to open.
+
+### 2d: Debugging & Exploitation Prep
+- Use scriptable debuggers like `gdb` (with `pwndbg` or `gef`) via CLI.
+- Set breakpoints on interesting functions found during decompilation.
+- Provide input to the binary and inspect registers and memory to verify buffer overflows, format string vulnerabilities, or logic bypasses.
+- If testing mobile/API apps, use `frida` to hook functions and dump arguments dynamically.
+
+**Adaptive Behaviors:**
+- **When anti-debugging is detected (e.g., `ptrace` checks):** Use binary patching (`radare2` or `dd`) to overwrite the conditional jump (e.g., changing `JNE` to `JMP`) to bypass the check.
+- **When a crash occurs (Segfault):** Analyze the core dump or `gdb` register state to determine if `RIP/EIP` was overwritten (indicating exploitable memory corruption).

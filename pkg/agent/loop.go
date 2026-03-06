@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/channels"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/constants"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/integration"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/routing"
@@ -431,14 +433,37 @@ func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMe
 
 // runAgentLoop is the core message processing logic.
 func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opts processOptions) (string, error) {
-	// 0. Check for CLAW mode - if enabled, use CLAW orchestrator instead of legacy loop
-	if agent.CLAWAdapter != nil && agent.CLAWAdapter.IsEnabled() {
-		logger.InfoCF("agent", "Processing message in CLAW mode", map[string]any{
+	// 0. Check for explicit CLAW mode request (per-message, not per-agent)
+	// User can trigger CLAW with: "claw web_quick example.com" or "/claw scan target.com"
+	if detectCLAWRequest(opts.UserMessage) {
+		pipeline, target, cleanedMessage := extractCLAWParams(opts.UserMessage)
+
+		logger.InfoCF("agent", "Processing message in CLAW mode (explicit request)", map[string]any{
 			"agent_id": agent.ID,
 			"session":  opts.SessionKey,
+			"pipeline": pipeline,
+			"target":   target,
 		})
 
-		response, err := agent.CLAWAdapter.ProcessMessage(ctx, opts.UserMessage)
+		// Create temporary CLAW adapter for this message
+		persistenceDir := filepath.Join(agent.Workspace, "blackboard")
+
+		adapterCfg := &integration.CLAWConfig{
+			Enabled:        true,
+			Pipeline:       pipeline,
+			PersistenceDir: persistenceDir,
+		}
+
+		clawAdapter, err := integration.NewCLAWAdapter(adapterCfg, agent.Provider)
+		if err != nil {
+			logger.ErrorCF("agent", "Failed to create CLAW adapter", map[string]any{
+				"error":    err.Error(),
+				"agent_id": agent.ID,
+			})
+			return "", fmt.Errorf("failed to create CLAW adapter: %w", err)
+		}
+
+		response, err := clawAdapter.ProcessMessage(ctx, cleanedMessage)
 		if err != nil {
 			logger.ErrorCF("agent", "CLAW processing failed", map[string]any{
 				"error":    err.Error(),
@@ -454,6 +479,8 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 
 		return response, nil
 	}
+
+	// Fall through to normal agent mode (default behavior)
 
 	// 0. Record last channel for heartbeat notifications (skip internal channels)
 	if opts.Channel != "" && opts.ChatID != "" {
@@ -1309,4 +1336,49 @@ func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
 		return nil
 	}
 	return &routing.RoutePeer{Kind: parentKind, ID: parentID}
+}
+
+// detectCLAWRequest checks if the user message explicitly requests CLAW mode
+// Supports: "claw <pipeline> <target>", "/claw <pipeline> <target>"
+func detectCLAWRequest(message string) bool {
+	trimmed := strings.TrimSpace(message)
+	return strings.HasPrefix(trimmed, "claw ") || strings.HasPrefix(trimmed, "/claw ")
+}
+
+// extractCLAWParams extracts pipeline and target from CLAW request
+// Returns: pipeline, target, cleaned message (without claw prefix)
+func extractCLAWParams(message string) (pipeline string, target string, cleanedMessage string) {
+	trimmed := strings.TrimSpace(message)
+
+	// Remove prefix
+	if strings.HasPrefix(trimmed, "/claw ") {
+		cleanedMessage = strings.TrimPrefix(trimmed, "/claw ")
+	} else if strings.HasPrefix(trimmed, "claw ") {
+		cleanedMessage = strings.TrimPrefix(trimmed, "claw ")
+	} else {
+		return "", "", message
+	}
+
+	// Parse: "web_quick example.com" or just "example.com" (default to web_quick)
+	parts := strings.Fields(cleanedMessage)
+	if len(parts) == 0 {
+		return "", "", ""
+	}
+
+	// Check if first part looks like a pipeline name (contains underscore or known pipeline)
+	knownPipelines := map[string]bool{
+		"web_quick": true,
+		"web_full":  true,
+	}
+
+	if len(parts) >= 2 && (strings.Contains(parts[0], "_") || knownPipelines[parts[0]]) {
+		pipeline = parts[0]
+		target = strings.Join(parts[1:], " ")
+	} else {
+		// Default to web_quick
+		pipeline = "web_quick"
+		target = cleanedMessage
+	}
+
+	return pipeline, target, target
 }

@@ -6,6 +6,7 @@
 package config
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -368,4 +369,45 @@ func ConvertProvidersToModelList(cfg *Config) []ModelConfig {
 	}
 
 	return result
+}
+
+// MigrateConfigSettings performs automatic migration of config settings
+// Currently handles CLAW mode opt-in migration
+func MigrateConfigSettings(cfg *Config) []string {
+	warnings := []string{}
+
+	// Migration 1: CLAW mode opt-in
+	// Previously CLAW was enabled by default, now it's opt-in
+	if cfg.Agents.Defaults.CLAWMode != nil && cfg.Agents.Defaults.CLAWMode.Enabled {
+		warnings = append(warnings,
+			"⚠️  Your config has CLAW mode enabled by default.",
+			"   CLAW is now opt-in for structured security assessments.",
+			"   Use 'picoclaw claw <pipeline> <target>' or '/claw' in agent mode.",
+			"   Disabling default CLAW mode for flexible agent operation.",
+		)
+		cfg.Agents.Defaults.CLAWMode.Enabled = false
+	}
+
+	return warnings
+}
+
+// PrintMigrationWarnings prints migration warnings to console
+func PrintMigrationWarnings(warnings []string) {
+	if len(warnings) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════╗")
+	fmt.Println("║              Configuration Migration                  ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════╝")
+	fmt.Println()
+
+	for _, warning := range warnings {
+		fmt.Println(warning)
+	}
+
+	fmt.Println()
+	fmt.Println("Your config will be automatically updated on next save.")
+	fmt.Println()
 }

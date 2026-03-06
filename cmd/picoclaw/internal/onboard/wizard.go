@@ -112,6 +112,78 @@ var providers = []Provider{
 		},
 	},
 	{
+		Name:        "google",
+		Description: "Structured output, fast",
+		KeyURL:      "https://aistudio.google.com/apikey",
+		FreeTier:    "Yes (generous)",
+		EnvVar:      "GEMINI_API_KEY",
+		Models: []ModelInfo{
+			{
+				Name:        "google/gemini-2.0-flash-exp",
+				DisplayName: "gemini-2.0-flash-exp",
+				Description: "Recommended - fast, free",
+				CostInput:   "Free (generous quota)",
+				CostOutput:  "Free (generous quota)",
+				Recommended: true,
+			},
+			{
+				Name:        "google/gemini-1.5-pro",
+				DisplayName: "gemini-1.5-pro",
+				Description: "Most capable Gemini",
+				CostInput:   "$1.25/M",
+				CostOutput:  "$5/M",
+			},
+		},
+	},
+	{
+		Name:        "groq",
+		Description: "Ultra-fast inference",
+		KeyURL:      "https://console.groq.com/keys",
+		FreeTier:    "Yes",
+		EnvVar:      "GROQ_API_KEY",
+		Models: []ModelInfo{
+			{
+				Name:        "groq/llama-3.3-70b-versatile",
+				DisplayName: "llama-3.3-70b-versatile",
+				Description: "Recommended - fast, capable",
+				CostInput:   "$0.59/M",
+				CostOutput:  "$0.79/M",
+				Recommended: true,
+			},
+			{
+				Name:        "groq/mixtral-8x7b-32768",
+				DisplayName: "mixtral-8x7b-32768",
+				Description: "Fast, good reasoning",
+				CostInput:   "$0.24/M",
+				CostOutput:  "$0.24/M",
+			},
+		},
+	},
+	{
+		Name:        "mistral",
+		Description: "European AI, GDPR-compliant",
+		KeyURL:      "https://console.mistral.ai/api-keys",
+		FreeTier:    "Limited",
+		EnvVar:      "MISTRAL_API_KEY",
+		Models: []ModelInfo{
+			{
+				Name:        "mistral/mistral-large-latest",
+				DisplayName: "mistral-large-latest",
+				Description: "Recommended - most capable",
+				CostInput:   "$2/M",
+				CostOutput:  "$6/M",
+				Recommended: true,
+			},
+			{
+				Name:        "mistral/mistral-small-latest",
+				DisplayName: "mistral-small-latest",
+				Description: "Fast, affordable",
+				CostInput:   "$0.20/M",
+				CostOutput:  "$0.60/M",
+			},
+		},
+	},
+	{
 		Name:        "lmstudio",
 		Description: "Privacy-first, offline",
 		KeyURL:      "https://lmstudio.ai",
@@ -324,18 +396,185 @@ func createSimpleConfig(provider Provider, model ModelInfo, apiKey string) *conf
 func createAdvancedConfig(primaryProvider Provider, primaryModel ModelInfo, primaryKey string) (*config.Config, error) {
 	cfg := createSimpleConfig(primaryProvider, primaryModel, primaryKey)
 
-	// TODO: Prompt for planning, parsing tiers
-	// For now, just enable routing with single model
+	fmt.Println("\nMulti-Model Tier Configuration")
+	fmt.Println("───────────────────────────────\n")
+
+	// Prompt for planning tier
+	fmt.Println("Planning Tier (Fast, Budget-Friendly):")
+	fmt.Println("  Used for: task breakdown, phase planning, tool selection")
+	fmt.Println("  Recommendation: Fast, cheap model\n")
+
+	planningModel, planningKey, err := promptAdditionalModel("planning", primaryProvider, primaryModel, primaryKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Prompt for parsing tier
+	fmt.Println("\nParsing Tier (Structured Output):")
+	fmt.Println("  Used for: tool output extraction, finding parsing")
+	fmt.Println("  Recommendation: Strong structured output capability\n")
+
+	parsingModel, parsingKey, err := promptAdditionalModel("parsing", primaryProvider, primaryModel, primaryKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add models to config if they're different from primary
+	if planningModel.Name != primaryModel.Name && planningKey != "" {
+		cfg.ModelList = append(cfg.ModelList, config.ModelConfig{
+			ModelName: planningModel.DisplayName,
+			Model:     planningModel.Name,
+			APIKey:    planningKey,
+		})
+	}
+
+	if parsingModel.Name != primaryModel.Name && parsingKey != "" && parsingModel.Name != planningModel.Name {
+		cfg.ModelList = append(cfg.ModelList, config.ModelConfig{
+			ModelName: parsingModel.DisplayName,
+			Model:     parsingModel.Name,
+			APIKey:    parsingKey,
+		})
+	}
+
+	// Configure routing
 	cfg.Routing.Enabled = true
 	cfg.Routing.DefaultTier = "analysis"
 	cfg.Routing.Tiers = map[string]config.TierConfig{
+		"planning": {
+			ModelName: planningModel.DisplayName,
+			UseFor:    []string{"task_breakdown", "planning", "tool_selection"},
+		},
 		"analysis": {
 			ModelName: primaryModel.DisplayName,
-			UseFor:    []string{"security_analysis", "reasoning"},
+			UseFor:    []string{"security_analysis", "reasoning", "deep_analysis"},
+		},
+		"parsing": {
+			ModelName: parsingModel.DisplayName,
+			UseFor:    []string{"tool_output_parsing", "structured_extraction", "finding_extraction"},
 		},
 	}
 
+	// Print summary
+	fmt.Println("\n✓ Multi-model routing configured!")
+	fmt.Printf("  Planning: %s\n", planningModel.DisplayName)
+	fmt.Printf("  Analysis: %s (primary)\n", primaryModel.DisplayName)
+	fmt.Printf("  Parsing: %s\n", parsingModel.DisplayName)
+
 	return cfg, nil
+}
+
+func promptAdditionalModel(tier string, primaryProvider Provider, primaryModel ModelInfo, primaryKey string) (ModelInfo, string, error) {
+	// Suggest good models for this tier
+	recommendations := getSuggestedModelsForTier(tier)
+
+	fmt.Println("Options:")
+	fmt.Printf("  [1] Use same as Analysis (%s)\n", primaryModel.DisplayName)
+
+	for i, rec := range recommendations {
+		fmt.Printf("  [%d] %s (%s)\n", i+2, rec.DisplayName, rec.Description)
+		if rec.CostInput != "" {
+			fmt.Printf("      Cost: %s input, %s output\n", rec.CostInput, rec.CostOutput)
+		}
+	}
+
+	fmt.Println()
+	choice := promptChoice("Your choice", 1, len(recommendations)+1)
+
+	// Option 1: Use primary model
+	if choice == 1 {
+		return primaryModel, primaryKey, nil
+	}
+
+	// Other options: Use recommended model
+	selectedModel := recommendations[choice-2]
+
+	// Check if we need to prompt for API key
+	apiKey := ""
+	if selectedModel.Name != primaryModel.Name {
+		// Extract provider from model name (e.g., "google/gemini-2.0-flash" -> "google")
+		parts := strings.Split(selectedModel.Name, "/")
+		if len(parts) > 0 {
+			providerName := parts[0]
+
+			// Find provider to get env var
+			for _, p := range providers {
+				if p.Name == providerName {
+					if p.EnvVar != "" {
+						if envKey := os.Getenv(p.EnvVar); envKey != "" {
+							fmt.Printf("✓ Using %s from environment\n", p.EnvVar)
+							apiKey = envKey
+						} else {
+							fmt.Printf("Enter your %s API key (or press Enter to skip): ", p.Name)
+							scanner := bufio.NewScanner(os.Stdin)
+							if scanner.Scan() {
+								apiKey = strings.TrimSpace(scanner.Text())
+							}
+						}
+					}
+					break
+				}
+			}
+		}
+	} else {
+		apiKey = primaryKey
+	}
+
+	return selectedModel, apiKey, nil
+}
+
+func getSuggestedModelsForTier(tier string) []ModelInfo {
+	switch tier {
+	case "planning":
+		return []ModelInfo{
+			{
+				Name:        "google/gemini-2.0-flash-exp",
+				DisplayName: "gemini-2.0-flash-exp",
+				Description: "Free, very fast",
+				CostInput:   "Free",
+				CostOutput:  "Free",
+			},
+			{
+				Name:        "openai/gpt-4o-mini",
+				DisplayName: "gpt-4o-mini",
+				Description: "Fast, affordable",
+				CostInput:   "$0.15/M",
+				CostOutput:  "$0.60/M",
+			},
+			{
+				Name:        "groq/llama-3.3-70b-versatile",
+				DisplayName: "groq/llama-3.3-70b",
+				Description: "Ultra-fast",
+				CostInput:   "$0.59/M",
+				CostOutput:  "$0.79/M",
+			},
+		}
+	case "parsing":
+		return []ModelInfo{
+			{
+				Name:        "google/gemini-2.0-flash-exp",
+				DisplayName: "gemini-2.0-flash-exp",
+				Description: "Free, structured output",
+				CostInput:   "Free",
+				CostOutput:  "Free",
+			},
+			{
+				Name:        "openai/gpt-4.5-turbo",
+				DisplayName: "gpt-4.5-turbo",
+				Description: "Excellent structured output",
+				CostInput:   "$2.50/M",
+				CostOutput:  "$10/M",
+			},
+			{
+				Name:        "anthropic/claude-haiku-4.5",
+				DisplayName: "claude-haiku-4.5",
+				Description: "Fast, good parsing",
+				CostInput:   "$0.80/M",
+				CostOutput:  "$4/M",
+			},
+		}
+	default:
+		return []ModelInfo{}
+	}
 }
 
 func saveConfig(cfg *config.Config) error {

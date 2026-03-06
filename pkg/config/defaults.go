@@ -18,7 +18,7 @@ func DefaultConfig() *Config {
 				Temperature:         nil, // nil means use provider default
 				MaxToolIterations:   20,
 				CLAWMode: &CLAWConfig{
-					Enabled:        true,
+					Enabled:        false, // Changed: Agent mode is now default, CLAW is opt-in
 					Pipeline:       "web_quick",
 					PersistenceDir: "~/.picoclaw/blackboard",
 				},

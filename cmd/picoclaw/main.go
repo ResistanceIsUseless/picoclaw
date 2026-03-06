@@ -15,6 +15,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal"
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/agent"
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/auth"
+	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/claw"
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/config"
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/cron"
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal/gateway"
@@ -38,6 +39,7 @@ func NewPicoclawCommand() *cobra.Command {
 	cmd.AddCommand(
 		onboard.NewOnboardCommand(),
 		agent.NewAgentCommand(),
+		claw.NewClawCommand(), // Structured security assessments (opt-in)
 		auth.NewAuthCommand(),
 		config.NewConfigCommand(),
 		gateway.NewGatewayCommand(),
@@ -80,6 +82,16 @@ func ensureConfigured() error {
 		fmt.Fprintf(os.Stderr, "⚠ Config load error: %v\n", err)
 		fmt.Fprintf(os.Stderr, "  Run 'picoclaw onboard' to recreate config\n\n")
 		return nil // Don't block, allow other commands
+	}
+
+	// Run config migrations
+	migrationWarnings := pkgConfig.MigrateConfigSettings(cfg)
+	if len(migrationWarnings) > 0 {
+		pkgConfig.PrintMigrationWarnings(migrationWarnings)
+		// Save migrated config
+		if err := pkgConfig.SaveConfig(cfgPath, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠ Failed to save migrated config: %v\n", err)
+		}
 	}
 
 	// Validate and display warnings
