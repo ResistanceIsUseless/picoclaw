@@ -7,7 +7,6 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,24 +16,26 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/registry"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools"
 )
 
 // CommanderOrchestrator implements hierarchical multi-agent coordination
 // It uses a Commander agent to dynamically route work to specialist agents
 // based on blackboard state, replacing rigid pipeline execution.
 type CommanderOrchestrator struct {
-	provider     providers.LLMProvider
-	blackboard   *blackboard.Blackboard
-	toolRegistry *registry.ToolRegistry
-	promptsDir   string
-	maxCycles    int // Maximum Commander → Specialist cycles to prevent infinite loops
+	provider         providers.LLMProvider
+	blackboard       *blackboard.Blackboard
+	toolRegistry     *tools.ToolRegistry // Execution registry with actual tools
+	metadataRegistry *registry.ToolRegistry // Metadata registry for CLAW phase contracts (optional)
+	promptsDir       string
+	maxCycles        int // Maximum Commander → Specialist cycles to prevent infinite loops
 }
 
 // NewCommanderOrchestrator creates a new hierarchical orchestrator
 func NewCommanderOrchestrator(
 	provider providers.LLMProvider,
 	bb *blackboard.Blackboard,
-	toolRegistry *registry.ToolRegistry,
+	toolRegistry *tools.ToolRegistry,
 	maxCycles int,
 ) *CommanderOrchestrator {
 	if maxCycles == 0 {
@@ -42,11 +43,12 @@ func NewCommanderOrchestrator(
 	}
 
 	return &CommanderOrchestrator{
-		provider:     provider,
-		blackboard:   bb,
-		toolRegistry: toolRegistry,
-		promptsDir:   "pkg/prompts",
-		maxCycles:    maxCycles,
+		provider:         provider,
+		blackboard:       bb,
+		toolRegistry:     toolRegistry,
+		metadataRegistry: nil, // Not used in Commander mode
+		promptsDir:       "pkg/prompts",
+		maxCycles:        maxCycles,
 	}
 }
 
@@ -391,68 +393,35 @@ func (co *CommanderOrchestrator) getToolsForSpecialist() []providers.ToolDefinit
 		return nil
 	}
 
-	// Get all visible/requestable tools from registry
-	registryTools := co.toolRegistry.GetRequestableTools()
-
-	// Convert to provider tool definitions
-	toolDefs := make([]providers.ToolDefinition, 0, len(registryTools))
-	for _, regTool := range registryTools {
-		toolDefs = append(toolDefs, providers.ToolDefinition{
-			Type: "function",
-			Function: providers.ToolFunctionDefinition{
-				Name:        regTool.Name,
-				Description: regTool.Description,
-				Parameters:  regTool.InputSchema,
-			},
-		})
-	}
-
-	return toolDefs
+	// Get all tool definitions from the execution registry
+	// ToProviderDefs() converts tools.Tool implementations to provider format
+	return co.toolRegistry.ToProviderDefs()
 }
 
 // executeTool executes a tool and returns the result as a string
-// Simplified version without async callbacks or user output handling
+// Uses the tools.ToolRegistry.Execute() method for actual execution
 func (co *CommanderOrchestrator) executeTool(ctx context.Context, toolName string, args map[string]any) string {
 	if co.toolRegistry == nil {
-		return fmt.Sprintf("Error: Tool registry not available")
+		return "Error: Tool registry not available"
 	}
 
-	// Validate tool execution
-	validation, err := co.toolRegistry.ValidateExecution(toolName, args)
-	if err != nil {
-		return fmt.Sprintf("Error validating tool %s: %v", toolName, err)
+	// Execute tool through registry
+	// Note: We don't pass channel/chatID since Commander specialists don't have user context
+	result := co.toolRegistry.Execute(ctx, toolName, args)
+
+	if result.IsError {
+		logger.ErrorCF("commander", "Tool execution failed", map[string]any{
+			"tool":  toolName,
+			"error": result.ForLLM,
+		})
+		return fmt.Sprintf("Error executing %s: %s", toolName, result.ForLLM)
 	}
 
-	if !validation.Allowed {
-		return fmt.Sprintf("Tool %s execution not allowed: %s", toolName, validation.RejectReason)
-	}
-
-	// Get tool from registry to verify it exists
-	_, err = co.toolRegistry.Get(toolName)
-	if err != nil {
-		return fmt.Sprintf("Error: Tool %s not found: %v", toolName, err)
-	}
-
-	// Execute tool (using the registry's execution mechanism)
-	// Note: This is a simplified execution without full agent context
-	// TODO: Implement actual tool execution through registry
-	// For now, we return a placeholder to satisfy the interface
-
-	// Convert args to JSON for logging
-	argsJSON, err := json.Marshal(args)
-	if err != nil {
-		return fmt.Sprintf("Error marshaling arguments for %s: %v", toolName, err)
-	}
-
-	// For now, return a placeholder result
-	// TODO: Implement actual tool execution through registry
-	result := fmt.Sprintf("Tool %s executed with args: %s\n[Output would go here]", toolName, string(argsJSON))
-
-	logger.InfoCF("commander", "Tool executed", map[string]any{
-		"tool":       toolName,
-		"args_size":  len(argsJSON),
-		"validation": validation.Allowed,
+	logger.InfoCF("commander", "Tool executed successfully", map[string]any{
+		"tool":        toolName,
+		"output_size": len(result.ForLLM),
 	})
 
-	return result
+	// Return the ForLLM content (this is what the specialist will see)
+	return result.ForLLM
 }

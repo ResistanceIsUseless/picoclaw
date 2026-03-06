@@ -10,6 +10,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/orchestrator"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/registry"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools"
 )
 
 // CLAWAdapter bridges CLAW orchestrator with existing agent loop
@@ -50,11 +51,13 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 	}
 	bb := blackboard.New(persister)
 
-	// Initialize tool registry
-	toolRegistry := registry.NewToolRegistry()
+	// Initialize tool registries
+	// For Commander mode: need execution registry (tools.ToolRegistry)
+	// For Pipeline mode: need metadata registry (registry.ToolRegistry)
+	metadataRegistry := registry.NewToolRegistry()
 
 	// Register all available tools (44+ security tools + shell)
-	if err := registry.RegisterAllTools(toolRegistry); err != nil {
+	if err := registry.RegisterAllTools(metadataRegistry); err != nil {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
 
@@ -66,7 +69,28 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 			maxCycles = 10 // Default
 		}
 
-		commanderOrch := orchestrator.NewCommanderOrchestrator(provider, bb, toolRegistry, maxCycles)
+		// Create execution registry for Commander (with actual tool implementations)
+		execRegistry := tools.NewToolRegistry()
+
+		// Register basic tools for Commander specialists
+		// Note: This is a minimal set - Commander should receive full config in production
+		// For now, register shell/exec tool for command execution
+		execRegistry.Register(tools.NewExecTool("~/.picoclaw/commander_workspace", true))
+
+		// File operations - workspace constrained
+		execRegistry.Register(tools.NewReadFileTool("~/.picoclaw/commander_workspace", true))
+		execRegistry.Register(tools.NewWriteFileTool("~/.picoclaw/commander_workspace", true))
+		execRegistry.Register(tools.NewEditFileTool("~/.picoclaw/commander_workspace", true))
+		execRegistry.Register(tools.NewListDirTool("~/.picoclaw/commander_workspace", true))
+
+		// Web fetch tool
+		execRegistry.Register(tools.NewWebFetchTool(50000))
+
+		logger.InfoCF("claw", "Registered Commander tools", map[string]any{
+			"tool_count": 6,
+		})
+
+		commanderOrch := orchestrator.NewCommanderOrchestrator(provider, bb, execRegistry, maxCycles)
 
 		logger.InfoCF("claw", "CLAW adapter initialized (Commander mode)",
 			map[string]any{
@@ -77,7 +101,7 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 		return &CLAWAdapter{
 			commanderOrchestrator: commanderOrch,
 			blackboard:            bb,
-			toolRegistry:          toolRegistry,
+			toolRegistry:          metadataRegistry,
 			provider:              provider,
 			enabled:               true,
 			useCommander:          true,
@@ -99,7 +123,7 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 	}
 
 	// Create orchestrator
-	orch := orchestrator.NewOrchestrator(pipeline, bb, toolRegistry)
+	orch := orchestrator.NewOrchestrator(pipeline, bb, metadataRegistry)
 
 	// Set provider for model calls
 	orch.SetProvider(provider)
@@ -114,7 +138,7 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 	return &CLAWAdapter{
 		orchestrator: orch,
 		blackboard:   bb,
-		toolRegistry: toolRegistry,
+		toolRegistry: metadataRegistry,
 		provider:     provider,
 		enabled:      true,
 		useCommander: false,
