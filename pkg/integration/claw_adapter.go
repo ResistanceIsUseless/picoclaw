@@ -15,18 +15,22 @@ import (
 // CLAWAdapter bridges CLAW orchestrator with existing agent loop
 // This allows gradual migration from legacy to CLAW architecture
 type CLAWAdapter struct {
-	orchestrator   *orchestrator.Orchestrator
-	blackboard     *blackboard.Blackboard
-	toolRegistry   *registry.ToolRegistry
-	provider       providers.LLMProvider
-	enabled        bool
+	orchestrator        *orchestrator.Orchestrator
+	commanderOrchestrator *orchestrator.CommanderOrchestrator
+	blackboard          *blackboard.Blackboard
+	toolRegistry        *registry.ToolRegistry
+	provider            providers.LLMProvider
+	enabled             bool
+	useCommander        bool // Use hierarchical Commander mode
 }
 
 // CLAWConfig configures CLAW adapter behavior
 type CLAWConfig struct {
-	Enabled       bool   // Enable CLAW mode
-	Pipeline      string // Pipeline name (web_full, web_quick, or custom)
+	Enabled        bool   // Enable CLAW mode
+	Pipeline       string // Pipeline name (web_full, web_quick, or custom)
 	PersistenceDir string // Directory for blackboard persistence
+	UseCommander   bool   // Use hierarchical Commander orchestrator (Phase 2)
+	MaxCycles      int    // Maximum Commander cycles (default 10)
 }
 
 // NewCLAWAdapter creates a new CLAW adapter
@@ -54,7 +58,33 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
 
-	// Get pipeline
+	// Choose orchestration mode
+	if cfg.UseCommander {
+		// Phase 2: Hierarchical Commander mode
+		maxCycles := cfg.MaxCycles
+		if maxCycles == 0 {
+			maxCycles = 10 // Default
+		}
+
+		commanderOrch := orchestrator.NewCommanderOrchestrator(provider, bb, maxCycles)
+
+		logger.InfoCF("claw", "CLAW adapter initialized (Commander mode)",
+			map[string]any{
+				"max_cycles":      maxCycles,
+				"persistence_dir": cfg.PersistenceDir,
+			})
+
+		return &CLAWAdapter{
+			commanderOrchestrator: commanderOrch,
+			blackboard:            bb,
+			toolRegistry:          toolRegistry,
+			provider:              provider,
+			enabled:               true,
+			useCommander:          true,
+		}, nil
+	}
+
+	// Legacy: Phase 1 pipeline mode
 	var pipeline *orchestrator.Pipeline
 	var err error
 	if cfg.Pipeline != "" {
@@ -74,7 +104,7 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 	// Set provider for model calls
 	orch.SetProvider(provider)
 
-	logger.InfoCF("claw", "CLAW adapter initialized",
+	logger.InfoCF("claw", "CLAW adapter initialized (Pipeline mode)",
 		map[string]any{
 			"pipeline":        pipeline.Name,
 			"phases":          len(pipeline.Phases),
@@ -87,6 +117,7 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 		toolRegistry: toolRegistry,
 		provider:     provider,
 		enabled:      true,
+		useCommander: false,
 	}, nil
 }
 
@@ -105,8 +136,26 @@ func (ca *CLAWAdapter) ProcessMessage(ctx context.Context, userMessage string) (
 	logger.InfoCF("claw", "Processing message in CLAW mode",
 		map[string]any{
 			"message_preview": truncateString(userMessage, 100),
+			"use_commander":   ca.useCommander,
 		})
 
+	// Route to appropriate orchestrator
+	if ca.useCommander {
+		// Commander mode: Hierarchical multi-agent coordination
+		response, err := ca.commanderOrchestrator.Execute(ctx, userMessage)
+		if err != nil {
+			logger.ErrorCF("claw", "Commander execution failed",
+				map[string]any{
+					"error": err.Error(),
+				})
+			return "", fmt.Errorf("commander execution failed: %w", err)
+		}
+
+		logger.InfoCF("claw", "Commander execution completed", nil)
+		return response, nil
+	}
+
+	// Pipeline mode: Legacy rigid phase execution
 	// Parse operator target from message
 	// For now, assume message is target specification
 	// Example: "web:example.com" or "network:192.168.1.0/24"
