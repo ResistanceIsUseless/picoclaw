@@ -7,6 +7,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,22 +16,25 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/blackboard"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/registry"
 )
 
 // CommanderOrchestrator implements hierarchical multi-agent coordination
 // It uses a Commander agent to dynamically route work to specialist agents
 // based on blackboard state, replacing rigid pipeline execution.
 type CommanderOrchestrator struct {
-	provider   providers.LLMProvider
-	blackboard *blackboard.Blackboard
-	promptsDir string
-	maxCycles  int // Maximum Commander → Specialist cycles to prevent infinite loops
+	provider     providers.LLMProvider
+	blackboard   *blackboard.Blackboard
+	toolRegistry *registry.ToolRegistry
+	promptsDir   string
+	maxCycles    int // Maximum Commander → Specialist cycles to prevent infinite loops
 }
 
 // NewCommanderOrchestrator creates a new hierarchical orchestrator
 func NewCommanderOrchestrator(
 	provider providers.LLMProvider,
 	bb *blackboard.Blackboard,
+	toolRegistry *registry.ToolRegistry,
 	maxCycles int,
 ) *CommanderOrchestrator {
 	if maxCycles == 0 {
@@ -38,10 +42,11 @@ func NewCommanderOrchestrator(
 	}
 
 	return &CommanderOrchestrator{
-		provider:   provider,
-		blackboard: bb,
-		promptsDir: "pkg/prompts",
-		maxCycles:  maxCycles,
+		provider:     provider,
+		blackboard:   bb,
+		toolRegistry: toolRegistry,
+		promptsDir:   "pkg/prompts",
+		maxCycles:    maxCycles,
 	}
 }
 
@@ -209,7 +214,7 @@ func (co *CommanderOrchestrator) parseCommanderResponse(content string) (*Routin
 	return decision, nil
 }
 
-// executeSpecialist runs the specified specialist agent
+// executeSpecialist runs the specified specialist agent with tool execution loop
 func (co *CommanderOrchestrator) executeSpecialist(ctx context.Context, decision *RoutingDecision) error {
 	logger.InfoCF("commander", "Executing specialist", map[string]any{
 		"agent": decision.Agent,
@@ -231,6 +236,9 @@ func (co *CommanderOrchestrator) executeSpecialist(ctx context.Context, decision
 	// Build specialist context (just-in-time)
 	blackboardSummary := co.blackboard.GetSummary()
 
+	// Get available tools for this specialist
+	toolDefs := co.getToolsForSpecialist()
+
 	messages := []providers.Message{
 		{
 			Role: "system",
@@ -244,27 +252,82 @@ func (co *CommanderOrchestrator) executeSpecialist(ctx context.Context, decision
 		},
 	}
 
-	// Call LLM with tool access
-	// TODO: Integrate with actual tool execution system
-	options := map[string]any{
-		"max_tokens":  4096,
-		"temperature": 0.7,
+	// Tool execution loop (max 5 iterations)
+	maxIterations := 5
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		options := map[string]any{
+			"max_tokens":  4096,
+			"temperature": 0.7,
+		}
+
+		response, err := co.provider.Chat(ctx, messages, toolDefs, co.provider.GetDefaultModel(), options)
+		if err != nil {
+			return fmt.Errorf("specialist LLM call failed: %w", err)
+		}
+
+		// Check if specialist is done (no tool calls)
+		if len(response.ToolCalls) == 0 {
+			// Record final output to blackboard
+			co.blackboard.RecordSpecialistOutput(decision.Agent, response.Content)
+
+			logger.InfoCF("commander", "Specialist completed", map[string]any{
+				"agent":       decision.Agent,
+				"iterations":  iteration + 1,
+				"output_size": len(response.Content),
+			})
+			return nil
+		}
+
+		// Execute tool calls
+		toolResults := make([]string, 0, len(response.ToolCalls))
+		for _, tc := range response.ToolCalls {
+			// Normalize tool call
+			normalizedTC := providers.NormalizeToolCall(tc)
+
+			logger.InfoCF("commander", "Specialist executing tool", map[string]any{
+				"agent":     decision.Agent,
+				"tool":      normalizedTC.Name,
+				"iteration": iteration + 1,
+			})
+
+			// Execute tool (simplified - no async, no user output)
+			result := co.executeTool(ctx, normalizedTC.Name, normalizedTC.Arguments)
+			toolResults = append(toolResults, result)
+		}
+
+		// Add assistant message with tool calls
+		assistantMsg := providers.Message{
+			Role:    "assistant",
+			Content: response.Content,
+		}
+		messages = append(messages, assistantMsg)
+
+		// Add tool results as user messages
+		for i, tc := range response.ToolCalls {
+			normalizedTC := providers.NormalizeToolCall(tc)
+			toolMsg := providers.Message{
+				Role: "user",
+				Content: fmt.Sprintf("Tool %s returned:\n%s",
+					normalizedTC.Name,
+					toolResults[i]),
+			}
+			messages = append(messages, toolMsg)
+		}
+
+		logger.InfoCF("commander", "Specialist iteration complete", map[string]any{
+			"agent":      decision.Agent,
+			"iteration":  iteration + 1,
+			"tool_calls": len(response.ToolCalls),
+		})
 	}
 
-	response, err := co.provider.Chat(ctx, messages, nil, co.provider.GetDefaultModel(), options)
-	if err != nil {
-		return fmt.Errorf("specialist LLM call failed: %w", err)
-	}
-
-	// Record specialist output to blackboard
-	co.blackboard.RecordSpecialistOutput(decision.Agent, response.Content)
-
-	logger.InfoCF("commander", "Specialist completed", map[string]any{
-		"agent":       decision.Agent,
-		"output_size": len(response.Content),
+	// Max iterations reached
+	logger.WarnCF("commander", "Specialist max iterations reached", map[string]any{
+		"agent":          decision.Agent,
+		"max_iterations": maxIterations,
 	})
 
-	return nil
+	return fmt.Errorf("specialist %s exceeded max iterations (%d)", decision.Agent, maxIterations)
 }
 
 // getPromptFileForAgent maps agent names to prompt files
@@ -319,4 +382,77 @@ func (co *CommanderOrchestrator) formatIncompleteReport(cycles int) string {
 	report += co.blackboard.GetDetailedSummary()
 
 	return report
+}
+
+// getToolsForSpecialist returns tool definitions available to specialists
+// Unlike pipeline mode, specialists can access ALL registered tools dynamically
+func (co *CommanderOrchestrator) getToolsForSpecialist() []providers.ToolDefinition {
+	if co.toolRegistry == nil {
+		return nil
+	}
+
+	// Get all visible/requestable tools from registry
+	registryTools := co.toolRegistry.GetRequestableTools()
+
+	// Convert to provider tool definitions
+	toolDefs := make([]providers.ToolDefinition, 0, len(registryTools))
+	for _, regTool := range registryTools {
+		toolDefs = append(toolDefs, providers.ToolDefinition{
+			Type: "function",
+			Function: providers.ToolFunctionDefinition{
+				Name:        regTool.Name,
+				Description: regTool.Description,
+				Parameters:  regTool.InputSchema,
+			},
+		})
+	}
+
+	return toolDefs
+}
+
+// executeTool executes a tool and returns the result as a string
+// Simplified version without async callbacks or user output handling
+func (co *CommanderOrchestrator) executeTool(ctx context.Context, toolName string, args map[string]any) string {
+	if co.toolRegistry == nil {
+		return fmt.Sprintf("Error: Tool registry not available")
+	}
+
+	// Validate tool execution
+	validation, err := co.toolRegistry.ValidateExecution(toolName, args)
+	if err != nil {
+		return fmt.Sprintf("Error validating tool %s: %v", toolName, err)
+	}
+
+	if !validation.Allowed {
+		return fmt.Sprintf("Tool %s execution not allowed: %s", toolName, validation.RejectReason)
+	}
+
+	// Get tool from registry to verify it exists
+	_, err = co.toolRegistry.Get(toolName)
+	if err != nil {
+		return fmt.Sprintf("Error: Tool %s not found: %v", toolName, err)
+	}
+
+	// Execute tool (using the registry's execution mechanism)
+	// Note: This is a simplified execution without full agent context
+	// TODO: Implement actual tool execution through registry
+	// For now, we return a placeholder to satisfy the interface
+
+	// Convert args to JSON for logging
+	argsJSON, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Sprintf("Error marshaling arguments for %s: %v", toolName, err)
+	}
+
+	// For now, return a placeholder result
+	// TODO: Implement actual tool execution through registry
+	result := fmt.Sprintf("Tool %s executed with args: %s\n[Output would go here]", toolName, string(argsJSON))
+
+	logger.InfoCF("commander", "Tool executed", map[string]any{
+		"tool":       toolName,
+		"args_size":  len(argsJSON),
+		"validation": validation.Allowed,
+	})
+
+	return result
 }

@@ -66,7 +66,7 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 			maxCycles = 10 // Default
 		}
 
-		commanderOrch := orchestrator.NewCommanderOrchestrator(provider, bb, maxCycles)
+		commanderOrch := orchestrator.NewCommanderOrchestrator(provider, bb, toolRegistry, maxCycles)
 
 		logger.InfoCF("claw", "CLAW adapter initialized (Commander mode)",
 			map[string]any{
