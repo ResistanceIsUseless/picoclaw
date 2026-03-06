@@ -20,6 +20,8 @@ Start with subdomain enumeration:
 ## Phase 2: DNS and Live Host Identification
 
 For each discovered subdomain:
+- Do google dorking
+- Check archive data (gau, waybackurls)
 - Resolve DNS to get IP addresses
 - Check if the host is actually live
 - Note any CNAMEs pointing to third-party services (potential subdomain takeover)
@@ -32,6 +34,7 @@ Run comprehensive port scans:
 - Don't limit to common ports - scan full ranges where appropriate
 - Note versions of all services found
 - Pay attention to non-HTTP services (SSH, FTP, SMTP, databases, etc.)
+- Check if Ipv6 might contain less firewall rules or addtional services
 
 ## Phase 4: HTTP Probing
 
@@ -68,9 +71,9 @@ Update the Blackboard with all discoveries and return control to the Commander. 
 
 ## Tools You Should Use
 
-- **Subdomain enum**: subfinder, amass, assetfinder
+- **Subdomain enum**: subfinder, amass, assetfinder, gau
 - **DNS**: dnsx, dig, host
-- **Port scanning**: nmap, masscan, rustscan
+- **Port scanning**: nmap, masscan, rustscan, naabu
 - **HTTP probing**: httpx, httprobe
 - **Technology detection**: whatweb, wappalyzer
 

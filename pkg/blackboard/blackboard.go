@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -310,4 +311,146 @@ func (b *Blackboard) Summary() string {
 	}
 
 	return summary
+}
+
+// GetSummary returns a summary suitable for the Commander agent
+// Alias for Summary() for Commander orchestrator compatibility
+func (b *Blackboard) GetSummary() string {
+	return b.Summary()
+}
+
+// GetDetailedSummary returns a more detailed summary with artifact contents
+func (b *Blackboard) GetDetailedSummary() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if len(b.artifacts) == 0 {
+		return "No discoveries yet."
+	}
+
+	var summary strings.Builder
+	for artifactType, artifacts := range b.artifacts {
+		summary.WriteString(fmt.Sprintf("## %s (%d)\n\n", artifactType, len(artifacts)))
+
+		// Show latest few artifacts
+		start := 0
+		if len(artifacts) > 3 {
+			start = len(artifacts) - 3
+		}
+
+		for i := start; i < len(artifacts); i++ {
+			env := artifacts[i]
+			summary.WriteString(fmt.Sprintf("- Phase: %s, Domain: %s, Created: %s\n",
+				env.Metadata.Phase, env.Metadata.Domain, env.Metadata.CreatedAt.Format(time.RFC3339)))
+
+			// Show a snippet of the data
+			if len(env.Data) > 0 && len(env.Data) < 200 {
+				summary.WriteString(fmt.Sprintf("  Data: %s\n", string(env.Data)))
+			} else if len(env.Data) > 0 {
+				summary.WriteString(fmt.Sprintf("  Data: %s... (%d bytes)\n", string(env.Data[:100]), len(env.Data)))
+			}
+		}
+		summary.WriteString("\n")
+	}
+
+	return summary.String()
+}
+
+// RecordUserObjective records the user's assessment objective
+func (b *Blackboard) RecordUserObjective(objective string) error {
+	// Create a simple artifact directly
+	data := map[string]string{
+		"objective": objective,
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal objective: %w", err)
+	}
+
+	env := ArtifactEnvelope{
+		Metadata: ArtifactMetadata{
+			Type:      "UserObjective",
+			CreatedAt: time.Now(),
+			Phase:     "input",
+			Domain:    "meta",
+		},
+		Data: jsonData,
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.artifacts["UserObjective"] == nil {
+		b.artifacts["UserObjective"] = []ArtifactEnvelope{}
+	}
+	b.artifacts["UserObjective"] = append(b.artifacts["UserObjective"], env)
+
+	return nil
+}
+
+// RecordSpecialistOutput records output from a specialist agent
+func (b *Blackboard) RecordSpecialistOutput(agentName string, output string) error {
+	data := map[string]string{
+		"agent":  agentName,
+		"output": output,
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal specialist output: %w", err)
+	}
+
+	env := ArtifactEnvelope{
+		Metadata: ArtifactMetadata{
+			Type:      "SpecialistOutput",
+			CreatedAt: time.Now(),
+			Phase:     agentName,
+			Domain:    "meta",
+		},
+		Data: jsonData,
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.artifacts["SpecialistOutput"] == nil {
+		b.artifacts["SpecialistOutput"] = []ArtifactEnvelope{}
+	}
+	b.artifacts["SpecialistOutput"] = append(b.artifacts["SpecialistOutput"], env)
+
+	return nil
+}
+
+// RecordError records an error from agent execution
+func (b *Blackboard) RecordError(agentName string, errorMsg string) error {
+	data := map[string]string{
+		"agent": agentName,
+		"error": errorMsg,
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal error: %w", err)
+	}
+
+	env := ArtifactEnvelope{
+		Metadata: ArtifactMetadata{
+			Type:      "ExecutionError",
+			CreatedAt: time.Now(),
+			Phase:     agentName,
+			Domain:    "meta",
+		},
+		Data: jsonData,
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.artifacts["ExecutionError"] == nil {
+		b.artifacts["ExecutionError"] = []ArtifactEnvelope{}
+	}
+	b.artifacts["ExecutionError"] = append(b.artifacts["ExecutionError"], env)
+
+	return nil
 }
