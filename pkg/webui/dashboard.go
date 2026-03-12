@@ -239,6 +239,27 @@ func renderDashboardHTML() string {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
     }
+    .search-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .search-input, .filter-select {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.78);
+      color: var(--text);
+      font: inherit;
+      padding: 10px 12px;
+    }
+    .search-input {
+      flex: 1;
+      min-width: 220px;
+    }
+    .filter-select {
+      min-width: 180px;
+    }
     .node-card {
       padding: 14px;
       border-radius: 16px;
@@ -407,6 +428,10 @@ func renderDashboardHTML() string {
       </div>
       <div class="panel span-6">
         <h2>Graph Explorer</h2>
+        <div class="search-row">
+          <input id="graphSearch" class="search-input" type="search" placeholder="Search nodes by label or ID">
+          <select id="graphTypeFilter" class="filter-select"></select>
+        </div>
         <div id="graphExplorer" class="stack"><div class="empty">Loading graph nodes...</div></div>
       </div>
       <div class="panel span-6">
@@ -422,7 +447,7 @@ func renderDashboardHTML() string {
   </div>
 
   <script>
-    const state = { events: [], graphNodes: [], graphEdges: [], selectedNodeId: null, eventFilter: 'all' };
+    const state = { events: [], graphNodes: [], graphEdges: [], selectedNodeId: null, eventFilter: 'all', graphSearch: '', graphType: 'all' };
     const el = (id) => document.getElementById(id);
     const eventFilters = ['all', 'phase_start', 'phase_complete', 'tool_execution', 'artifact', 'graph_update', 'log'];
 
@@ -533,11 +558,38 @@ func renderDashboardHTML() string {
         '</div>';
     }
 
+    function renderGraphFilters() {
+      const typeSelect = el('graphTypeFilter');
+      const searchInput = el('graphSearch');
+      const types = ['all'].concat(Array.from(new Set((state.graphNodes || []).map(node => node.type))).sort());
+      typeSelect.innerHTML = types.map(type =>
+        '<option value="' + type + '" ' + (state.graphType === type ? 'selected' : '') + '>' + (type === 'all' ? 'All node types' : type) + '</option>'
+      ).join('');
+      searchInput.value = state.graphSearch;
+      searchInput.oninput = () => {
+        state.graphSearch = searchInput.value || '';
+        renderGraphExplorer();
+      };
+      typeSelect.onchange = () => {
+        state.graphType = typeSelect.value;
+        renderGraphExplorer();
+      };
+    }
+
     function renderGraphExplorer() {
       const root = el('graphExplorer');
-      const nodes = state.graphNodes || [];
+      const nodes = (state.graphNodes || []).filter(node => {
+        const matchesType = state.graphType === 'all' || node.type === state.graphType;
+        const needle = state.graphSearch.trim().toLowerCase();
+        const haystack = (String(node.label || '') + ' ' + String(node.id || '')).toLowerCase();
+        const matchesSearch = needle === '' || haystack.includes(needle);
+        return matchesType && matchesSearch;
+      });
+      if (state.selectedNodeId && !nodes.find(node => node.id === state.selectedNodeId)) {
+        state.selectedNodeId = nodes[0] ? nodes[0].id : null;
+      }
       if (nodes.length === 0) {
-        root.innerHTML = '<div class="empty">No graph nodes available yet.</div>';
+        root.innerHTML = '<div class="empty">No graph nodes match the current filters.</div>';
         return;
       }
       root.innerHTML = '<div class="node-grid">' + nodes.slice(0, 12).map(node =>
@@ -685,6 +737,7 @@ func renderDashboardHTML() string {
       renderFrontier(frontier);
       state.graphNodes = nodes;
       state.graphEdges = edges;
+      renderGraphFilters();
       renderGraphExplorer();
       renderNodeDetails();
     }
