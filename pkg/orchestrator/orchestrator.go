@@ -708,6 +708,11 @@ func (o *Orchestrator) GetBlackboard() *blackboard.Blackboard {
 	return o.blackboard
 }
 
+// GetPipeline returns the active pipeline definition.
+func (o *Orchestrator) GetPipeline() *Pipeline {
+	return o.pipeline
+}
+
 // Escalate handles escalation requests from phases
 func (o *Orchestrator) Escalate(phaseName string, reason string) error {
 	o.mu.Lock()

@@ -222,6 +222,11 @@ func (ca *CLAWAdapter) GetBlackboard() *blackboard.Blackboard {
 	return ca.blackboard
 }
 
+// GetToolRegistry returns the metadata tool registry used by CLAW.
+func (ca *CLAWAdapter) GetToolRegistry() *registry.ToolRegistry {
+	return ca.toolRegistry
+}
+
 // parseTargetFromMessage extracts target and type from user message
 // TODO: Implement proper parsing logic
 func parseTargetFromMessage(message string) (target string, targetType string) {

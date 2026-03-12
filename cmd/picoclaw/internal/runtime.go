@@ -10,12 +10,14 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/agent"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/bus"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/graph"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/integration"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/orchestrator"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/registry"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/tools"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/tools/profiles"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/webui"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/workflow"
 )
 
@@ -26,11 +28,50 @@ type AgentRuntime struct {
 	Bus              *bus.MessageBus
 	AgentLoop        *agent.AgentLoop
 	ProfileReadiness *ProfileReadiness
+	WebUIServer      *webui.Server
+	WebUIURL         string
 }
 
 type PipelinePreflight struct {
 	MissingRequired []string
 	MissingOptional []string
+}
+
+func (r *AgentRuntime) StartEmbeddedWebUI(addr string) (string, error) {
+	if r.WebUIURL != "" {
+		return r.WebUIURL, nil
+	}
+
+	server := webui.NewServer(nil, r.AgentLoop.GetBlackboard(), nil, nil)
+	url, err := server.StartBackground(addr)
+	if err != nil {
+		return "", err
+	}
+
+	r.WebUIServer = server
+	r.WebUIURL = url
+	return url, nil
+}
+
+func StartEmbeddedCLAWWebUI(addr string, adapter *integration.CLAWAdapter) (string, *webui.Server, error) {
+	if adapter == nil {
+		return "", nil, fmt.Errorf("claw adapter is nil")
+	}
+
+	orch := adapter.GetOrchestrator()
+	var g *graph.Graph
+	if orch != nil {
+		g = orch.GetGraph()
+	}
+	server := webui.NewServer(orch, adapter.GetBlackboard(), g, adapter.GetToolRegistry())
+	if orch != nil {
+		orch.SetEventEmitter(server.GetEventEmitter())
+	}
+	url, err := server.StartBackground(addr)
+	if err != nil {
+		return "", nil, err
+	}
+	return url, server, nil
 }
 
 type ProfileReadiness struct {

@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/graph"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/orchestrator"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/phase"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools/profiles"
 )
 
 // PipelineStatus represents the current state of a pipeline execution
@@ -127,6 +129,15 @@ type SystemStatus struct {
 
 // SerializePipelineStatus converts orchestrator state to API response
 func SerializePipelineStatus(orch *orchestrator.Orchestrator, startTime time.Time) *PipelineStatus {
+	if orch == nil {
+		return &PipelineStatus{
+			Name:      "local_runtime",
+			Status:    "running",
+			Progress:  0,
+			StartTime: startTime,
+		}
+	}
+
 	current := orch.GetCurrentPhase()
 	completed := orch.GetCompletedPhases()
 	bb := orch.GetBlackboard()
@@ -139,6 +150,9 @@ func SerializePipelineStatus(orch *orchestrator.Orchestrator, startTime time.Tim
 		StartTime:       startTime,
 		GraphNodes:      g.NodeCount(),
 	}
+	if pipeline := orch.GetPipeline(); pipeline != nil {
+		status.Name = pipeline.Name
+	}
 
 	// Count artifacts
 	artifacts, _ := bb.GetAll()
@@ -147,11 +161,13 @@ func SerializePipelineStatus(orch *orchestrator.Orchestrator, startTime time.Tim
 	if current != nil {
 		status.Status = string(current.Status)
 		status.CurrentPhase = current.PhaseName
-		// Calculate progress based on completed phases and current iteration
-		// This is simplified - could be more sophisticated
-		totalPhases := len(completed) + 1 // completed + current
+		// Calculate progress based on pipeline size and current phase iteration.
+		totalPhases := len(completed) + 1
+		if pipeline := orch.GetPipeline(); pipeline != nil && len(pipeline.Phases) > 0 {
+			totalPhases = len(pipeline.Phases)
+		}
 		status.Progress = float64(len(completed)) / float64(totalPhases)
-		if current.Iteration > 0 {
+		if current.Iteration > 0 && current.Contract != nil && current.Contract.MaxIterations > 0 {
 			phaseProgress := float64(current.Iteration) / float64(current.Contract.MaxIterations)
 			status.Progress += phaseProgress / float64(totalPhases)
 		}
@@ -212,13 +228,35 @@ func SerializePhaseDetail(phaseExec *orchestrator.PhaseExecution) *PhaseDetail {
 			MaxIterations:     phaseExec.Contract.MaxIterations,
 		}
 
-		// Calculate contract progress
+		// Calculate contract progress from executed tools/artifacts.
 		satisfied := 0
 		total := len(phaseExec.Contract.RequiredTools) + len(phaseExec.Contract.RequiredProfiles) + len(phaseExec.Contract.RequiredArtifacts)
 		if total > 0 {
-			// This is simplified - could check actual completion
+			completedTools := make(map[string]bool)
 			if phaseExec.State != nil {
-				satisfied = len(phaseExec.State.GetCompletedTools())
+				for _, toolCall := range phaseExec.State.GetCompletedTools() {
+					completedTools[toolCall.ToolName] = true
+				}
+			}
+			for _, requiredTool := range phaseExec.Contract.RequiredTools {
+				if completedTools[requiredTool] {
+					satisfied++
+				}
+			}
+			completedProfiles := getCompletedProfiles(phaseExec.State)
+			for _, requiredProfile := range phaseExec.Contract.RequiredProfiles {
+				if completedProfiles[requiredProfile] {
+					satisfied++
+				}
+			}
+			producedArtifacts := make(map[string]bool)
+			for _, artifact := range phaseExec.Artifacts {
+				producedArtifacts[artifact.Metadata.Type] = true
+			}
+			for _, requiredArtifact := range phaseExec.Contract.RequiredArtifacts {
+				if producedArtifacts[requiredArtifact] {
+					satisfied++
+				}
 			}
 			detail.Contract.Progress = float64(satisfied) / float64(total)
 		}
@@ -278,12 +316,25 @@ func SerializeArtifacts(artifacts []blackboard.ArtifactEnvelope) []ArtifactView 
 			Data:      make(map[string]interface{}),
 		}
 
-		// Extract key data fields based on type
-		// This is simplified - could unmarshal specific artifact types
-		view.Data["raw"] = string(artifact.Data)
+		if err := json.Unmarshal(artifact.Data, &view.Data); err != nil || len(view.Data) == 0 {
+			view.Data = map[string]interface{}{"raw": string(artifact.Data)}
+		}
 
 		views = append(views, view)
 	}
 
 	return views
+}
+
+func getCompletedProfiles(state *phase.DAGState) map[string]bool {
+	completed := make(map[string]bool)
+	if state == nil {
+		return completed
+	}
+	for _, toolCall := range state.GetCompletedTools() {
+		if profile, ok := profiles.ResolveToolProfile(toolCall.ToolName); ok {
+			completed[profile.Name] = true
+		}
+	}
+	return completed
 }

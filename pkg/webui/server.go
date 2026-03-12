@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -98,8 +99,9 @@ func (s *Server) Start(addr string) error {
 	r.Get("/ws/logs", s.handleWSLogs)
 	r.Get("/ws/graph", s.handleWSGraph)
 
-	// Static files (will serve React frontend later)
-	// r.Get("/*", s.handleStatic)
+	// Local dashboard
+	r.Get("/", s.handleDashboard)
+	r.Get("/dashboard", s.handleDashboard)
 
 	// Create HTTP server
 	s.server = &http.Server{
@@ -116,6 +118,71 @@ func (s *Server) Start(addr string) error {
 		})
 
 	return s.server.ListenAndServe()
+}
+
+// StartBackground starts the web UI in a goroutine and returns the resolved local URL.
+func (s *Server) StartBackground(addr string) (string, error) {
+	if addr == "" {
+		addr = "127.0.0.1:0"
+	}
+	if addr[0] == ':' {
+		addr = "127.0.0.1" + addr
+	}
+
+	// Start WebSocket hub
+	go s.hub.Run()
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return "", err
+	}
+
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+	r.Route("/api", func(r chi.Router) {
+		r.Get("/status", s.handleStatus)
+		r.Get("/pipelines", s.handleListPipelines)
+		r.Get("/pipeline/status", s.handlePipelineStatus)
+		r.Get("/phase", s.handlePhaseDetail)
+		r.Get("/artifacts", s.handleListArtifacts)
+		r.Get("/artifacts/{id}", s.handleGetArtifact)
+		r.Get("/graph/nodes", s.handleGraphNodes)
+		r.Get("/graph/edges", s.handleGraphEdges)
+		r.Get("/graph/frontier", s.handleGraphFrontier)
+		r.Get("/tools", s.handleListTools)
+	})
+	r.Get("/ws/pipeline", s.handleWSPipeline)
+	r.Get("/ws/logs", s.handleWSLogs)
+	r.Get("/ws/graph", s.handleWSGraph)
+	r.Get("/", s.handleDashboard)
+	r.Get("/dashboard", s.handleDashboard)
+
+	s.server = &http.Server{
+		Addr:         listener.Addr().String(),
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			logger.WarnCF("webui", "Background web UI server stopped", map[string]any{"error": err.Error()})
+		}
+	}()
+
+	return "http://" + listener.Addr().String(), nil
 }
 
 // Stop stops the web UI server
@@ -145,20 +212,18 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListPipelines(w http.ResponseWriter, r *http.Request) {
-	// Return predefined pipelines
-	pipelines := PipelineList{
-		Pipelines: []PipelineInfo{
-			{
-				Name:        "web_quick",
-				Description: "Quick web reconnaissance",
-				Phases:      []string{"recon", "web_enum"},
-			},
-			{
-				Name:        "web_full",
-				Description: "Full web security assessment",
-				Phases:      []string{"recon", "web_enum", "vuln_scan", "exploitation"},
-			},
-		},
+	pipelines := PipelineList{Pipelines: make([]PipelineInfo, 0)}
+	if s.orchestrator != nil && s.orchestrator.GetPipeline() != nil {
+		pipeline := s.orchestrator.GetPipeline()
+		phaseNames := make([]string, 0, len(pipeline.Phases))
+		for _, phase := range pipeline.Phases {
+			phaseNames = append(phaseNames, phase.Name)
+		}
+		pipelines.Pipelines = append(pipelines.Pipelines, PipelineInfo{
+			Name:        pipeline.Name,
+			Description: pipeline.Description,
+			Phases:      phaseNames,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, pipelines)
@@ -170,6 +235,10 @@ func (s *Server) handlePipelineStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePhaseDetail(w http.ResponseWriter, r *http.Request) {
+	if s.orchestrator == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "No orchestrator attached"})
+		return
+	}
 	current := s.orchestrator.GetCurrentPhase()
 	if current == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{
@@ -183,6 +252,10 @@ func (s *Server) handlePhaseDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
+	if s.blackboard == nil {
+		writeJSON(w, http.StatusOK, []ArtifactView{})
+		return
+	}
 	// Get query parameters
 	phase := r.URL.Query().Get("phase")
 	artifactType := r.URL.Query().Get("type")
@@ -210,6 +283,10 @@ func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {
+	if s.blackboard == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Artifact not found"})
+		return
+	}
 	id := chi.URLParam(r, "id")
 	artifacts, err := s.blackboard.GetAll()
 	if err != nil {
@@ -233,6 +310,10 @@ func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGraphNodes(w http.ResponseWriter, r *http.Request) {
+	if s.graph == nil {
+		writeJSON(w, http.StatusOK, []NodeView{})
+		return
+	}
 	// Get frontier for highlighting
 	entityRegistry := graph.NewEntityRegistry()
 	frontier := s.graph.ComputeFrontier(entityRegistry)
@@ -242,11 +323,19 @@ func (s *Server) handleGraphNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGraphEdges(w http.ResponseWriter, r *http.Request) {
+	if s.graph == nil {
+		writeJSON(w, http.StatusOK, []EdgeView{})
+		return
+	}
 	export := SerializeGraphExport(s.graph, nil)
 	writeJSON(w, http.StatusOK, export.Edges)
 }
 
 func (s *Server) handleGraphFrontier(w http.ResponseWriter, r *http.Request) {
+	if s.graph == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"summary": "No graph available", "recommendations": []string{}})
+		return
+	}
 	entityRegistry := graph.NewEntityRegistry()
 	frontier := s.graph.ComputeFrontier(entityRegistry)
 
@@ -260,6 +349,10 @@ func (s *Server) handleGraphFrontier(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListTools(w http.ResponseWriter, r *http.Request) {
+	if s.registry == nil {
+		writeJSON(w, http.StatusOK, []map[string]any{})
+		return
+	}
 	tools := s.registry.ListAll()
 
 	type ToolView struct {
@@ -278,6 +371,11 @@ func (s *Server) handleListTools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, views)
+}
+
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(renderDashboardHTML()))
 }
 
 // WebSocket Handlers

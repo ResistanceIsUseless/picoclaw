@@ -11,6 +11,7 @@ func NewAgentCommand() *cobra.Command {
 		model        string
 		debug        bool
 		useTUI       bool
+		webUIAddr    string
 		workflowName string
 		target       string
 	)
@@ -20,7 +21,7 @@ func NewAgentCommand() *cobra.Command {
 		Short: "Interact with the agent directly",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return agentCmd(message, sessionKey, model, debug, useTUI, workflowName, target)
+			return agentCmd(message, sessionKey, model, debug, useTUI, webUIAddr, workflowName, target)
 		},
 	}
 
@@ -29,6 +30,7 @@ func NewAgentCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&sessionKey, "session", "s", "cli:default", "Session key")
 	cmd.Flags().StringVarP(&model, "model", "", "", "Model to use")
 	cmd.Flags().BoolVar(&useTUI, "tui", false, "Use terminal UI (interactive mode only)")
+	cmd.Flags().StringVar(&webUIAddr, "webui", "", "Start embedded local web UI (optionally set address like 127.0.0.1:0 or :8080)")
 	cmd.Flags().StringVarP(&workflowName, "workflow", "w", "", "Load workflow for guided assessment (e.g., 'network-scan')")
 	cmd.Flags().StringVarP(&target, "target", "t", "", "Target for workflow mission (e.g., IP range, domain, URL)")
 

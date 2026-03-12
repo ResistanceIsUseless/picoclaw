@@ -18,7 +18,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/tui"
 )
 
-func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowName, target string) error {
+func agentCmd(message, sessionKey, model string, debug, useTUI bool, webUIAddr, workflowName, target string) error {
 	if sessionKey == "" {
 		sessionKey = "cli:default"
 	}
@@ -39,6 +39,13 @@ func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowNam
 	}
 	agentLoop := runtime.AgentLoop
 	globalPreflight := internal.BuildPreflightSummary("runtime", nil, runtime.ProfileReadiness)
+	if webUIAddr != "" {
+		url, err := runtime.StartEmbeddedWebUI(webUIAddr)
+		if err != nil {
+			return fmt.Errorf("failed to start embedded web UI: %w", err)
+		}
+		fmt.Printf("🌐 Web UI: %s\n", url)
+	}
 
 	// Load workflow if specified
 	if workflowName != "" {

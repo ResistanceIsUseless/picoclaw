@@ -1026,6 +1026,11 @@ func (al *AgentLoop) GetRegistry() *AgentRegistry {
 	return al.registry
 }
 
+// GetBlackboard returns the shared runtime blackboard.
+func (al *AgentLoop) GetBlackboard() *blackboard.Blackboard {
+	return al.blackboard
+}
+
 // GetTierRouter returns the tier router if enabled
 func (al *AgentLoop) GetTierRouter() *routing.TierRouter {
 	return al.tierRouter

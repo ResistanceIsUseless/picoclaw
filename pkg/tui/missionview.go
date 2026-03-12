@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/workflow"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // MissionView displays workflow/mission state
@@ -45,9 +45,6 @@ func (m *MissionView) View(width, height int) string {
 		Foreground(lipgloss.Color("86")).
 		Bold(true)
 
-	completeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("46"))
-
 	pendingStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240"))
 
@@ -86,37 +83,27 @@ func (m *MissionView) View(width, height int) string {
 			exec = &state.PhaseHistory[len(state.PhaseHistory)-1]
 		}
 
-		// Steps
-		lines = append(lines, "Steps:")
-		for _, step := range phase.Steps {
-			isComplete := false
-			if exec != nil {
-				for _, completedID := range exec.StepsComplete {
-					if completedID == step.ID {
-						isComplete = true
-						break
-					}
-				}
-			}
-
-			var status string
-			var style lipgloss.Style
-			if isComplete {
-				status = "✓"
-				style = completeStyle
-			} else {
-				status = "○"
-				style = pendingStyle
-			}
-
+		if next := nextActionableStep(phase, exec); next != nil {
 			required := ""
-			if step.Required {
+			if next.Required {
 				required = " *"
 			}
-
-			line := fmt.Sprintf("  %s %s%s", status, step.Name, required)
-			lines = append(lines, style.Render(line))
+			lines = append(lines, "Next Action:")
+			lines = append(lines, pendingStyle.Render(fmt.Sprintf("  → %s%s", next.Name, required)))
+			if next.Description != "" {
+				desc := next.Description
+				if len(desc) > 70 {
+					desc = desc[:67] + "..."
+				}
+				lines = append(lines, fmt.Sprintf("    %s", desc))
+			}
 		}
+		lines = append(lines, "")
+
+		remainingRequired, remainingOptional := remainingStepCounts(phase, exec)
+		lines = append(lines, "Progress:")
+		lines = append(lines, fmt.Sprintf("  Required remaining: %d", remainingRequired))
+		lines = append(lines, fmt.Sprintf("  Optional remaining: %d", remainingOptional))
 		lines = append(lines, "")
 
 		// Completion criteria
@@ -229,4 +216,48 @@ func (m *MissionView) View(width, height int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func nextActionableStep(phase workflow.Phase, exec *workflow.PhaseExecution) *workflow.Step {
+	for i := range phase.Steps {
+		step := &phase.Steps[i]
+		if step.Required && !isStepComplete(step.ID, exec) {
+			return step
+		}
+	}
+	for i := range phase.Steps {
+		step := &phase.Steps[i]
+		if !isStepComplete(step.ID, exec) {
+			return step
+		}
+	}
+	return nil
+}
+
+func remainingStepCounts(phase workflow.Phase, exec *workflow.PhaseExecution) (int, int) {
+	remainingRequired := 0
+	remainingOptional := 0
+	for _, step := range phase.Steps {
+		if isStepComplete(step.ID, exec) {
+			continue
+		}
+		if step.Required {
+			remainingRequired++
+		} else {
+			remainingOptional++
+		}
+	}
+	return remainingRequired, remainingOptional
+}
+
+func isStepComplete(stepID string, exec *workflow.PhaseExecution) bool {
+	if exec == nil {
+		return false
+	}
+	for _, completedID := range exec.StepsComplete {
+		if completedID == stepID {
+			return true
+		}
+	}
+	return false
 }

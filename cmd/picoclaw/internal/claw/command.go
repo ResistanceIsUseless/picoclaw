@@ -97,10 +97,11 @@ func runClaw(ctx context.Context, pipelineFlag string, webUIFlag string, args []
 
 	// Start Web UI if requested
 	if webUIFlag != "" {
-		fmt.Printf("🌐 Web UI: http://localhost%s\n\n", webUIFlag)
-		// TODO: Integrate webui startup here
-		// For now, just note it's not implemented
-		fmt.Println("⚠️  Web UI integration not yet implemented in claw command")
+		url, _, err := internal.StartEmbeddedCLAWWebUI(webUIFlag, clawAdapter)
+		if err != nil {
+			return fmt.Errorf("failed to start web UI: %w", err)
+		}
+		fmt.Printf("🌐 Web UI: %s\n\n", url)
 	}
 
 	// Execute assessment
