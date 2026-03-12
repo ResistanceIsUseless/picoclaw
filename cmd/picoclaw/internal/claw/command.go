@@ -14,6 +14,7 @@ import (
 func NewClawCommand() *cobra.Command {
 	var pipelineFlag string
 	var webUIFlag string
+	var autoOpenWebUI bool
 
 	cmd := &cobra.Command{
 		Use:   "claw [pipeline] [target]",
@@ -35,20 +36,21 @@ tool selection. Use CLAW when you want repeatable, structured assessments.`,
   picoclaw claw --pipeline web_quick example.com
 
   # With Web UI
-  picoclaw claw web_quick example.com --webui :8080`,
+  picoclaw claw web_quick example.com --webui :8080 --open-webui`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClaw(cmd.Context(), pipelineFlag, webUIFlag, args)
+			return runClaw(cmd.Context(), pipelineFlag, webUIFlag, autoOpenWebUI, args)
 		},
 	}
 
 	cmd.Flags().StringVar(&pipelineFlag, "pipeline", "web_quick", "Pipeline to execute (web_quick, web_full)")
 	cmd.Flags().StringVar(&webUIFlag, "webui", "", "Start Web UI on specified address (e.g., :8080)")
+	cmd.Flags().BoolVar(&autoOpenWebUI, "open-webui", false, "Open the embedded web UI in your browser after startup")
 
 	return cmd
 }
 
-func runClaw(ctx context.Context, pipelineFlag string, webUIFlag string, args []string) error {
+func runClaw(ctx context.Context, pipelineFlag string, webUIFlag string, autoOpenWebUI bool, args []string) error {
 	// Parse arguments
 	var pipeline, target string
 
@@ -102,6 +104,11 @@ func runClaw(ctx context.Context, pipelineFlag string, webUIFlag string, args []
 			return fmt.Errorf("failed to start web UI: %w", err)
 		}
 		fmt.Printf("🌐 Web UI: %s\n\n", url)
+		if autoOpenWebUI {
+			if err := internal.OpenBrowser(url); err != nil {
+				fmt.Printf("⚠ Failed to open browser automatically: %v\n", err)
+			}
+		}
 	}
 
 	// Execute assessment

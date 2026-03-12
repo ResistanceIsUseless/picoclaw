@@ -142,6 +142,157 @@ func renderDashboardHTML() string {
       border: 1px solid var(--line);
       padding: 16px;
     }
+    .tool-row, .meta-row {
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .metric-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .metric {
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(15,118,110,0.06);
+      border: 1px solid rgba(15,118,110,0.08);
+    }
+    .metric .value {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--accent);
+    }
+    .metric .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .tool-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .tool-pill {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(31,41,51,0.04);
+    }
+    .event-type {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: rgba(15,118,110,0.08);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .event-type.log { background: rgba(100,116,139,0.12); color: #475569; }
+    .event-type.graph_update { background: rgba(2,132,199,0.12); color: #0369a1; }
+    .event-type.artifact { background: rgba(194,65,12,0.12); color: var(--accent-2); }
+    .event-type.phase_complete { background: rgba(22,101,52,0.12); color: var(--ok); }
+    .tab-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .tab-button {
+      border: 0;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(31,41,51,0.06);
+      color: var(--muted);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+    }
+    .tab-button.active {
+      background: rgba(15,118,110,0.12);
+      color: var(--accent);
+    }
+    .summary-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .node-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .node-card {
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(31,41,51,0.04);
+      cursor: pointer;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+    .node-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(15,118,110,0.22);
+      background: rgba(15,118,110,0.06);
+    }
+    .node-card.active {
+      border-color: rgba(15,118,110,0.38);
+      background: rgba(15,118,110,0.1);
+    }
+    .node-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .detail-card {
+      padding: 16px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+    }
+    .property-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .property-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(31,41,51,0.04);
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(31,41,51,0.04);
+    }
     .phase-card header, .artifact-card header, .tool-card header {
       display: flex;
       justify-content: space-between;
@@ -255,15 +406,25 @@ func renderDashboardHTML() string {
         <div id="frontier" class="graph-card muted">Loading graph frontier...</div>
       </div>
       <div class="panel span-6">
+        <h2>Graph Explorer</h2>
+        <div id="graphExplorer" class="stack"><div class="empty">Loading graph nodes...</div></div>
+      </div>
+      <div class="panel span-6">
+        <h2>Node Details</h2>
+        <div id="nodeDetails" class="detail-card muted">Select a node from the graph explorer to inspect its properties and edges.</div>
+      </div>
+      <div class="panel span-6">
         <h2>Live Events</h2>
+        <div id="eventFilters" class="tab-row"></div>
         <div id="events" class="stack"><div class="empty">Waiting for live events...</div></div>
       </div>
     </section>
   </div>
 
   <script>
-    const state = { events: [] };
+    const state = { events: [], graphNodes: [], graphEdges: [], selectedNodeId: null, eventFilter: 'all' };
     const el = (id) => document.getElementById(id);
+    const eventFilters = ['all', 'phase_start', 'phase_complete', 'tool_execution', 'artifact', 'graph_update', 'log'];
 
     function badgeClass(status) {
       const value = String(status || '').toLowerCase();
@@ -285,6 +446,7 @@ func renderDashboardHTML() string {
             '<span class="pill mono">tier ' + tool.tier + '</span>' +
           '</header>' +
           '<div class="muted">' + (tool.description || 'No description available.') + '</div>' +
+          '<div class="tool-row"><span>Ready in runtime</span><span class="mono">requestable</span></div>' +
         '</div>'
       ).join('');
     }
@@ -314,6 +476,19 @@ func renderDashboardHTML() string {
         return;
       }
       const tools = (detail.dag_state && detail.dag_state.tools) || [];
+      const completed = tools.filter(tool => tool.status === 'COMPLETED').length;
+      const running = tools.filter(tool => tool.status === 'RUNNING').length;
+      const blocked = tools.filter(tool => tool.status === 'BLOCKED').length;
+      const contract = detail.contract || {};
+      const requiredTools = contract.required_tools || [];
+      const requiredProfiles = contract.required_profiles || [];
+      const requiredArtifacts = contract.required_artifacts || [];
+      const toolRows = tools.slice(0, 6).map(tool =>
+        '<div class="tool-pill">' +
+          '<div><strong>' + tool.name + '</strong><div class="muted">' + (tool.summary || 'No summary yet.') + '</div></div>' +
+          '<span class="' + badgeClass(tool.status) + '">' + tool.status + '</span>' +
+        '</div>'
+      ).join('');
       root.innerHTML =
         '<div class="phase-card">' +
           '<header>' +
@@ -321,7 +496,16 @@ func renderDashboardHTML() string {
             '<span class="' + badgeClass(detail.status) + '">' + detail.status + '</span>' +
           '</header>' +
           '<div class="muted">Iteration ' + detail.iteration + ' / ' + detail.max_iterations + '</div>' +
-          '<div style="margin-top:12px" class="muted">Tracked tools: ' + tools.length + '</div>' +
+          '<div class="metric-list">' +
+            '<div class="metric"><div class="value">' + completed + '</div><div class="label">completed tools</div></div>' +
+            '<div class="metric"><div class="value">' + running + '</div><div class="label">running</div></div>' +
+            '<div class="metric"><div class="value">' + blocked + '</div><div class="label">blocked</div></div>' +
+            '<div class="metric"><div class="value">' + Math.round((contract.progress || 0) * 100) + '%%</div><div class="label">contract progress</div></div>' +
+          '</div>' +
+          '<div class="tool-list">' + (toolRows || '<div class="empty">No tool activity yet.</div>') + '</div>' +
+          '<div class="meta-row"><span>Required tools</span><span class="mono">' + requiredTools.join(', ') + '</span></div>' +
+          '<div class="meta-row"><span>Required profiles</span><span class="mono">' + requiredProfiles.join(', ') + '</span></div>' +
+          '<div class="meta-row"><span>Required artifacts</span><span class="mono">' + requiredArtifacts.join(', ') + '</span></div>' +
         '</div>';
     }
 
@@ -330,8 +514,8 @@ func renderDashboardHTML() string {
       const phases = status && status.completed_phases ? status.completed_phases : [];
       const current = status && status.current_phase ? status.current_phase : null;
       const cards = [];
-      phases.forEach(name => cards.push('<div class="phase-card"><header><strong>' + name + '</strong><span class="phase-status">COMPLETED</span></header></div>'));
-      if (current) cards.push('<div class="phase-card"><header><strong>' + current + '</strong><span class="' + badgeClass(status.status) + '">' + status.status + '</span></header></div>');
+      phases.forEach(name => cards.push('<div class="summary-row"><strong>' + name + '</strong><span class="phase-status">COMPLETED</span></div>'));
+      if (current) cards.push('<div class="summary-row"><strong>' + current + '</strong><span class="' + badgeClass(status.status) + '">' + status.status + '</span></div>');
       root.innerHTML = cards.length ? cards.join('') : '<div class="empty">No phase activity yet.</div>';
     }
 
@@ -341,27 +525,132 @@ func renderDashboardHTML() string {
         root.innerHTML = 'Loading graph frontier...';
         return;
       }
-      const recs = (frontier.recommendations || []).slice(0, 6).map(r => '<li><strong>' + (r.Tool || r.tool) + '</strong> — ' + ((r.Reason || r.reason || '').trim()) + '</li>').join('');
+      const recs = (frontier.recommendations || []).slice(0, 6).map(r => '<div class="summary-row"><strong>' + (r.Tool || r.tool) + '</strong><span class="muted">' + ((r.Reason || r.reason || '').trim()) + '</span></div>').join('');
       root.innerHTML =
         '<div class="graph-card">' +
           '<div class="muted" style="margin-bottom:10px">' + (frontier.summary || 'No frontier summary available.') + '</div>' +
-          (recs ? '<ul>' + recs + '</ul>' : '<div class="muted">No tool recommendations right now.</div>') +
+          (recs ? '<div class="summary-list">' + recs + '</div>' : '<div class="muted">No tool recommendations right now.</div>') +
         '</div>';
+    }
+
+    function renderGraphExplorer() {
+      const root = el('graphExplorer');
+      const nodes = state.graphNodes || [];
+      if (nodes.length === 0) {
+        root.innerHTML = '<div class="empty">No graph nodes available yet.</div>';
+        return;
+      }
+      root.innerHTML = '<div class="node-grid">' + nodes.slice(0, 12).map(node =>
+        '<button class="node-card ' + (state.selectedNodeId === node.id ? 'active' : '') + '" data-node-id="' + node.id + '">' +
+          '<div class="node-header">' +
+            '<strong>' + (node.label || node.id) + '</strong>' +
+            '<span class="pill">' + node.type + '</span>' +
+          '</div>' +
+          '<div class="muted mono">' + node.id + '</div>' +
+          (node.is_frontier ? '<div class="tool-row"><span>Frontier candidate</span><span class="phase-status warn">active</span></div>' : '') +
+        '</button>'
+      ).join('') + '</div>';
+
+      root.querySelectorAll('[data-node-id]').forEach(button => {
+        button.addEventListener('click', () => {
+          state.selectedNodeId = button.getAttribute('data-node-id');
+          renderGraphExplorer();
+          renderNodeDetails();
+        });
+      });
+
+      if (!state.selectedNodeId && nodes[0]) {
+        state.selectedNodeId = nodes[0].id;
+        renderGraphExplorer();
+        renderNodeDetails();
+      }
+    }
+
+    function renderNodeDetails() {
+      const root = el('nodeDetails');
+      const node = (state.graphNodes || []).find(item => item.id === state.selectedNodeId);
+      if (!node) {
+        root.innerHTML = 'Select a node from the graph explorer to inspect its properties and edges.';
+        return;
+      }
+
+      const edges = (state.graphEdges || []).filter(edge => edge.source === node.id || edge.target === node.id);
+      const properties = Object.entries(node.properties || {});
+      const propertyRows = properties.length
+        ? properties.map(([key, value]) =>
+            '<div class="property-row"><strong>' + key + '</strong><span class="mono">' + JSON.stringify(value) + '</span></div>'
+          ).join('')
+        : '<div class="empty">No node properties recorded.</div>';
+      const edgeRows = edges.length
+        ? edges.slice(0, 8).map(edge =>
+            '<div class="summary-row"><strong>' + edge.type + '</strong><span class="mono">' + edge.source + ' → ' + edge.target + '</span></div>'
+          ).join('')
+        : '<div class="empty">No connected edges recorded.</div>';
+
+      root.innerHTML =
+        '<div class="node-header">' +
+          '<strong>' + (node.label || node.id) + '</strong>' +
+          '<span class="pill">' + node.type + '</span>' +
+        '</div>' +
+        '<div class="muted mono">' + node.id + '</div>' +
+        '<div class="tool-row"><span>Frontier</span><span class="' + (node.is_frontier ? 'phase-status warn' : 'phase-status') + '">' + (node.is_frontier ? 'yes' : 'no') + '</span></div>' +
+        '<div style="margin-top:14px"><strong>Properties</strong></div>' +
+        '<div class="property-list">' + propertyRows + '</div>' +
+        '<div style="margin-top:14px"><strong>Connected Edges</strong></div>' +
+        '<div class="summary-list" style="margin-top:10px">' + edgeRows + '</div>';
+    }
+
+    function formatEventPayload(event) {
+      const payload = event.payload || {};
+      switch (event.type) {
+        case 'phase_start':
+          return 'Started ' + payload.phase + ' · iteration ' + payload.iteration + '\n' + (payload.objective || '');
+        case 'phase_complete':
+          return 'Completed ' + payload.phase + ' as ' + payload.status + ' in ' + (payload.duration || 'unknown duration');
+        case 'tool_execution':
+          return payload.tool + ' · ' + payload.status + '\n' + (payload.summary || '');
+        case 'artifact':
+          return payload.type + ' from ' + payload.phase + ' · count ' + payload.count;
+        case 'graph_update':
+          return 'Graph mutation · nodes ' + payload.nodes + ' · edges ' + payload.edges;
+        case 'log':
+          return (payload.component || 'runtime') + ' · ' + (payload.level || 'info') + '\n' + (payload.message || '');
+        default:
+          return JSON.stringify(payload, null, 2);
+      }
+    }
+
+    function renderEventFilters() {
+      const root = el('eventFilters');
+      root.innerHTML = eventFilters.map(filter =>
+        '<button class="tab-button ' + (state.eventFilter === filter ? 'active' : '') + '" data-filter="' + filter + '">' + filter.split('_').join(' ') + '</button>'
+      ).join('');
+      root.querySelectorAll('[data-filter]').forEach(button => {
+        button.addEventListener('click', () => {
+          state.eventFilter = button.getAttribute('data-filter');
+          renderEventFilters();
+          renderEvents();
+        });
+      });
     }
 
     function renderEvents() {
       const root = el('events');
-      if (state.events.length === 0) {
+      const visibleEvents = (state.eventFilter === 'all'
+        ? state.events
+        : state.events.filter(event => event.type === state.eventFilter)
+      );
+      if (visibleEvents.length === 0) {
         root.innerHTML = '<div class="empty">Waiting for live events...</div>';
         return;
       }
-      root.innerHTML = state.events.slice(0, 12).map(event =>
+      root.innerHTML = visibleEvents.slice(0, 12).map(event =>
         '<div class="log-entry">' +
           '<div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:8px;">' +
-            '<strong>' + event.type + '</strong>' +
+            '<span class="event-type ' + event.type + '">' + String(event.type).split('_').join(' ') + '</span>' +
             '<span class="muted mono">' + new Date(event.time).toLocaleTimeString() + '</span>' +
           '</div>' +
-          '<pre>' + JSON.stringify(event.payload, null, 2) + '</pre>' +
+          '<pre>' + formatEventPayload(event) + '</pre>' +
         '</div>'
       ).join('');
     }
@@ -373,12 +662,14 @@ func renderDashboardHTML() string {
     }
 
     async function loadSnapshot() {
-      const [status, phaseDetail, artifacts, tools, frontier] = await Promise.all([
+      const [status, phaseDetail, artifacts, tools, frontier, nodes, edges] = await Promise.all([
         loadJSON('/api/pipeline/status'),
         fetch('/api/phase').then(r => r.ok ? r.json() : null),
         loadJSON('/api/artifacts').catch(() => []),
         loadJSON('/api/tools').catch(() => []),
         loadJSON('/api/graph/frontier').catch(() => null),
+        loadJSON('/api/graph/nodes').catch(() => []),
+        loadJSON('/api/graph/edges').catch(() => []),
       ]);
 
       el('pipelineName').textContent = status.name || '-';
@@ -392,6 +683,10 @@ func renderDashboardHTML() string {
       renderArtifacts(artifacts);
       renderTools(tools);
       renderFrontier(frontier);
+      state.graphNodes = nodes;
+      state.graphEdges = edges;
+      renderGraphExplorer();
+      renderNodeDetails();
     }
 
     function connectWS() {
@@ -418,6 +713,7 @@ func renderDashboardHTML() string {
     }
 
     loadSnapshot().catch(console.error);
+    renderEventFilters();
     connectWS();
   </script>
 </body>

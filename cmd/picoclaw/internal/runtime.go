@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -72,6 +73,18 @@ func StartEmbeddedCLAWWebUI(addr string, adapter *integration.CLAWAdapter) (stri
 		return "", nil, err
 	}
 	return url, server, nil
+}
+
+func OpenBrowser(url string) error {
+	if url == "" {
+		return fmt.Errorf("web ui url is empty")
+	}
+
+	cmd := exec.Command("open", url)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to open browser: %w", err)
+	}
+	return nil
 }
 
 type ProfileReadiness struct {
