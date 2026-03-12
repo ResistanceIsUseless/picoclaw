@@ -211,8 +211,7 @@ func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-
-	artifact, err := s.blackboard.GetByID(id)
+	artifacts, err := s.blackboard.GetAll()
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{
 			"error": "Artifact not found",
@@ -220,10 +219,17 @@ func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	views := SerializeArtifacts([]blackboard.ArtifactEnvelope{artifact})
-	if len(views) > 0 {
-		writeJSON(w, http.StatusOK, views[0])
+	views := SerializeArtifacts(artifacts)
+	for _, view := range views {
+		if view.ID == id {
+			writeJSON(w, http.StatusOK, view)
+			return
+		}
 	}
+
+	writeJSON(w, http.StatusNotFound, map[string]string{
+		"error": "Artifact not found",
+	})
 }
 
 func (s *Server) handleGraphNodes(w http.ResponseWriter, r *http.Request) {

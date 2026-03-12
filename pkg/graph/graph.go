@@ -10,10 +10,10 @@ import (
 // It stores entities (domains, IPs, ports, functions, etc.) and their relationships
 type Graph struct {
 	mu         sync.RWMutex
-	nodes      map[string]*Node           // nodeID -> Node
+	nodes      map[string]*Node            // nodeID -> Node
 	edges      map[string]map[string]*Edge // fromID -> toID -> Edge
-	entities   map[EntityType][]*Node     // entityType -> nodes of that type
-	properties map[string]PropertyStore   // nodeID -> properties
+	entities   map[EntityType][]*Node      // entityType -> nodes of that type
+	properties map[string]PropertyStore    // nodeID -> properties
 }
 
 // Node represents an entity in the knowledge graph
@@ -48,8 +48,8 @@ type PropertyStore struct {
 type PropertyValue struct {
 	Value        interface{} `json:"value"`
 	ResolvedAt   time.Time   `json:"resolved_at"`
-	ResolvedBy   string      `json:"resolved_by"` // which tool resolved it
-	Confidence   float64     `json:"confidence"`  // 0.0 - 1.0
+	ResolvedBy   string      `json:"resolved_by"`   // which tool resolved it
+	Confidence   float64     `json:"confidence"`    // 0.0 - 1.0
 	NeedsConfirm bool        `json:"needs_confirm"` // should this be verified?
 }
 
@@ -335,6 +335,32 @@ func (g *Graph) Summary() string {
 	}
 
 	return summary
+}
+
+// GetAllNodes returns all graph nodes.
+func (g *Graph) GetAllNodes() []*Node {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	nodes := make([]*Node, 0, len(g.nodes))
+	for _, node := range g.nodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+// GetAllEdges returns all graph edges.
+func (g *Graph) GetAllEdges() []*Edge {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	edges := make([]*Edge, 0)
+	for _, edgeMap := range g.edges {
+		for _, edge := range edgeMap {
+			edges = append(edges, edge)
+		}
+	}
+	return edges
 }
 
 // Clear removes all nodes and edges (used for testing)

@@ -79,10 +79,10 @@ func (bf *BaseFilter) SaveFullOutput(toolName string, output []byte) (string, er
 
 	logger.DebugCF("filter", "Saved full output",
 		map[string]any{
-			"tool":      toolName,
-			"path":      fullPath,
-			"size":      len(output),
-			"filter":    bf.name,
+			"tool":   toolName,
+			"path":   fullPath,
+			"size":   len(output),
+			"filter": bf.name,
 		})
 
 	return fullPath, nil
@@ -98,8 +98,9 @@ func (bf *BaseFilter) TruncateSummary(summary string) string {
 
 // FilterRegistry manages output filters for different tool types
 type FilterRegistry struct {
-	filters   map[string]OutputFilter
-	outputDir string
+	filters       map[string]OutputFilter
+	defaultFilter OutputFilter
+	outputDir     string
 }
 
 // NewFilterRegistry creates a new filter registry
@@ -125,9 +126,24 @@ func (fr *FilterRegistry) Register(toolPattern string, filter OutputFilter) {
 		})
 }
 
+// RegisterDefault sets the fallback filter for tools without a specific filter.
+func (fr *FilterRegistry) RegisterDefault(filter OutputFilter) {
+	fr.defaultFilter = filter
+	logger.DebugCF("filter", "Registered default filter",
+		map[string]any{
+			"filter": filter.Name(),
+		})
+}
+
 // Get returns a filter for the given tool name
 func (fr *FilterRegistry) Get(toolName string) (OutputFilter, bool) {
 	filter, exists := fr.filters[toolName]
+	if exists {
+		return filter, true
+	}
+	if fr.defaultFilter != nil {
+		return fr.defaultFilter, true
+	}
 	return filter, exists
 }
 

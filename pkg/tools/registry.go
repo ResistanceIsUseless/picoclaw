@@ -10,6 +10,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/tools/filters"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools/profiles"
 )
 
 type ToolRegistry struct {
@@ -47,40 +48,40 @@ func (r *ToolRegistry) RegisterDefaultFilters() {
 
 	// Web crawling tools
 	crawlFilter := filters.NewCrawlFilter(outputDir)
+	r.registerProfileFilter(profiles.ProfileCrawl, crawlFilter)
 	r.filterRegistry.Register("crawl", crawlFilter)
 	r.filterRegistry.Register("spider", crawlFilter)
-	r.filterRegistry.Register("katana", crawlFilter)
-	r.filterRegistry.Register("gospider", crawlFilter)
-	r.filterRegistry.Register("hakrawler", crawlFilter)
 
 	// Port scanning tools
 	portFilter := filters.NewPortScanFilter(outputDir)
-	r.filterRegistry.Register("nmap", portFilter)
-	r.filterRegistry.Register("masscan", portFilter)
-	r.filterRegistry.Register("naabu", portFilter)
-	r.filterRegistry.Register("rustscan", portFilter)
+	r.registerProfileFilter(profiles.ProfilePortScan, portFilter)
 
 	// Fuzzing tools
 	fuzzFilter := filters.NewFuzzingFilter(outputDir)
-	r.filterRegistry.Register("ffuf", fuzzFilter)
-	r.filterRegistry.Register("wfuzz", fuzzFilter)
-	r.filterRegistry.Register("gobuster", fuzzFilter)
-	r.filterRegistry.Register("feroxbuster", fuzzFilter)
-	r.filterRegistry.Register("dirsearch", fuzzFilter)
+	r.registerProfileFilter(profiles.ProfileFuzz, fuzzFilter)
 
 	// Code analysis tools
 	codeFilter := filters.NewCodeAnalysisFilter(outputDir)
-	r.filterRegistry.Register("semgrep", codeFilter)
-	r.filterRegistry.Register("bandit", codeFilter)
-	r.filterRegistry.Register("gosec", codeFilter)
-	r.filterRegistry.Register("eslint", codeFilter)
-	r.filterRegistry.Register("sonarqube", codeFilter)
+	r.registerProfileFilter(profiles.ProfileCodeAnalysis, codeFilter)
+
+	// Generic fallback for large outputs from tools without dedicated profiles
+	r.filterRegistry.RegisterDefault(filters.NewGenericTextFilter(outputDir))
 
 	logger.InfoCF("tool", "Registered default output filters",
 		map[string]any{
-			"filter_count": 4,
+			"filter_count": 5,
 			"output_dir":   outputDir,
 		})
+}
+
+func (r *ToolRegistry) registerProfileFilter(profileName string, filter filters.OutputFilter) {
+	if r.filterRegistry == nil {
+		return
+	}
+
+	for _, toolName := range profiles.ToolsForProfile(profileName) {
+		r.filterRegistry.Register(toolName, filter)
+	}
 }
 
 func (r *ToolRegistry) Register(tool Tool) {
@@ -142,6 +143,9 @@ func (r *ToolRegistry) ExecuteWithContext(
 	start := time.Now()
 	result := tool.Execute(ctx, args)
 	duration := time.Since(start)
+	if result != nil && result.RawOutput == "" {
+		result.RawOutput = result.ForLLM
+	}
 
 	// Apply output filtering if available and result is successful
 	if !result.IsError && !result.Async && r.filterRegistry != nil {

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/routing"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/workflow"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Model is the main TUI application model
@@ -23,11 +23,13 @@ type Model struct {
 	inputBar    *InputBar
 
 	// Current state
-	currentModel    string
-	currentTier     string
-	sessionCost     float64
-	workflowEngine  *workflow.Engine
-	tierRouter      *routing.TierRouter
+	currentModel   string
+	currentTier    string
+	sessionCost    float64
+	profilesReady  int
+	profilesTotal  int
+	workflowEngine *workflow.Engine
+	tierRouter     *routing.TierRouter
 
 	// Layout
 	showMissionPanel bool
@@ -84,6 +86,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case CostUpdateMsg:
 		m.sessionCost = msg.Total
 		m.statusBar.SetCost(msg.Total)
+
+	case ProfileReadinessMsg:
+		m.profilesReady = msg.Ready
+		m.profilesTotal = msg.Total
+		m.statusBar.SetProfileReadiness(msg.Ready, msg.Total)
 
 	case ChatMessageMsg:
 		m.chatView.AddMessage(msg)
@@ -195,6 +202,12 @@ type CostUpdateMsg struct {
 	Total float64
 }
 
+// ProfileReadinessMsg indicates capability readiness counts.
+type ProfileReadinessMsg struct {
+	Ready int
+	Total int
+}
+
 // ChatMessageMsg represents a chat message to display
 type ChatMessageMsg struct {
 	Role      string // "user", "assistant", "tool"
@@ -213,6 +226,10 @@ func SendModelSwitch(model, tier string) tea.Msg {
 
 func SendCostUpdate(total float64) tea.Msg {
 	return CostUpdateMsg{Total: total}
+}
+
+func SendProfileReadiness(ready, total int) tea.Msg {
+	return ProfileReadinessMsg{Ready: ready, Total: total}
 }
 
 func SendChatMessage(role, content, toolName string) tea.Msg {
@@ -278,6 +295,13 @@ func (p *Program) SetTierRouter(router *routing.TierRouter) {
 	p.model.SetTierRouter(router)
 }
 
+// SetProfileReadiness sets capability readiness counts in the TUI.
+func (p *Program) SetProfileReadiness(ready, total int) {
+	p.model.statusBar.SetProfileReadiness(ready, total)
+	p.model.profilesReady = ready
+	p.model.profilesTotal = total
+}
+
 // SetInputHandler sets the input handler callback
 func (p *Program) SetInputHandler(handler func(string)) {
 	p.model.inputBar.SetOnSubmit(handler)
@@ -292,4 +316,13 @@ func (p *Program) Quit() {
 func (p *Program) Printf(format string, args ...interface{}) {
 	content := fmt.Sprintf(format, args...)
 	p.Send(SendChatMessage("system", content, ""))
+}
+
+// AddSystemMessage adds a system message before the TUI event loop starts.
+func (p *Program) AddSystemMessage(content string) {
+	p.model.chatView.AddMessage(ChatMessageMsg{
+		Role:      "system",
+		Content:   content,
+		Timestamp: time.Now(),
+	})
 }

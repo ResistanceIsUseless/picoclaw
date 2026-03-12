@@ -16,22 +16,23 @@ import (
 // CLAWAdapter bridges CLAW orchestrator with existing agent loop
 // This allows gradual migration from legacy to CLAW architecture
 type CLAWAdapter struct {
-	orchestrator        *orchestrator.Orchestrator
+	orchestrator          *orchestrator.Orchestrator
 	commanderOrchestrator *orchestrator.CommanderOrchestrator
-	blackboard          *blackboard.Blackboard
-	toolRegistry        *registry.ToolRegistry
-	provider            providers.LLMProvider
-	enabled             bool
-	useCommander        bool // Use hierarchical Commander mode
+	blackboard            *blackboard.Blackboard
+	toolRegistry          *registry.ToolRegistry
+	provider              providers.LLMProvider
+	enabled               bool
+	useCommander          bool // Use hierarchical Commander mode
 }
 
 // CLAWConfig configures CLAW adapter behavior
 type CLAWConfig struct {
-	Enabled        bool   // Enable CLAW mode
-	Pipeline       string // Pipeline name (web_full, web_quick, or custom)
-	PersistenceDir string // Directory for blackboard persistence
-	UseCommander   bool   // Use hierarchical Commander orchestrator (Phase 2)
-	MaxCycles      int    // Maximum Commander cycles (default 10)
+	Enabled        bool                // Enable CLAW mode
+	Pipeline       string              // Pipeline name (web_full, web_quick, or custom)
+	PersistenceDir string              // Directory for blackboard persistence
+	UseCommander   bool                // Use hierarchical Commander orchestrator (Phase 2)
+	MaxCycles      int                 // Maximum Commander cycles (default 10)
+	ExecRegistry   *tools.ToolRegistry // Optional shared execution registry
 }
 
 // NewCLAWAdapter creates a new CLAW adapter
@@ -70,24 +71,22 @@ func NewCLAWAdapter(cfg *CLAWConfig, provider providers.LLMProvider) (*CLAWAdapt
 		}
 
 		// Create execution registry for Commander (with actual tool implementations)
-		execRegistry := tools.NewToolRegistry()
+		execRegistry := cfg.ExecRegistry
+		if execRegistry == nil {
+			execRegistry = tools.NewToolRegistry()
 
-		// Register basic tools for Commander specialists
-		// Note: This is a minimal set - Commander should receive full config in production
-		// For now, register shell/exec tool for command execution
-		execRegistry.Register(tools.NewExecTool("~/.picoclaw/commander_workspace", true))
-
-		// File operations - workspace constrained
-		execRegistry.Register(tools.NewReadFileTool("~/.picoclaw/commander_workspace", true))
-		execRegistry.Register(tools.NewWriteFileTool("~/.picoclaw/commander_workspace", true))
-		execRegistry.Register(tools.NewEditFileTool("~/.picoclaw/commander_workspace", true))
-		execRegistry.Register(tools.NewListDirTool("~/.picoclaw/commander_workspace", true))
-
-		// Web fetch tool
-		execRegistry.Register(tools.NewWebFetchTool(50000))
+			// Register basic tools for Commander specialists
+			// Note: This is a minimal fallback - shared runtime registry is preferred
+			execRegistry.Register(tools.NewExecTool("~/.picoclaw/commander_workspace", true))
+			execRegistry.Register(tools.NewReadFileTool("~/.picoclaw/commander_workspace", true))
+			execRegistry.Register(tools.NewWriteFileTool("~/.picoclaw/commander_workspace", true))
+			execRegistry.Register(tools.NewEditFileTool("~/.picoclaw/commander_workspace", true))
+			execRegistry.Register(tools.NewListDirTool("~/.picoclaw/commander_workspace", true))
+			execRegistry.Register(tools.NewWebFetchTool(50000))
+		}
 
 		logger.InfoCF("claw", "Registered Commander tools", map[string]any{
-			"tool_count": 6,
+			"tool_count": len(execRegistry.List()),
 		})
 
 		commanderOrch := orchestrator.NewCommanderOrchestrator(provider, bb, execRegistry, maxCycles)

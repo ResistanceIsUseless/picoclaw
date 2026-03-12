@@ -206,7 +206,7 @@ var providers = []Provider{
 func RunSetupWizard() error {
 	printHeader()
 
-	fmt.Println("No configuration found. Let's get you set up!\n")
+	fmt.Print("No configuration found. Let's get you set up!\n\n")
 
 	// Step 1: Provider selection
 	provider, err := promptProvider()
@@ -233,7 +233,7 @@ func RunSetupWizard() error {
 
 	// Step 4: Test connection
 	fmt.Println("\nStep 4: Test Connection")
-	fmt.Println("─────────────────────────\n")
+	fmt.Print("─────────────────────────\n\n")
 	if err := testConnection(provider, model, apiKey); err != nil {
 		return fmt.Errorf("connection test failed: %w", err)
 	}
@@ -256,13 +256,13 @@ func RunSetupWizard() error {
 func printHeader() {
 	fmt.Println("╔═══════════════════════════════════════════╗")
 	fmt.Println("║   Welcome to CLAW Security Assistant      ║")
-	fmt.Println("╚═══════════════════════════════════════════╝\n")
+	fmt.Print("╚═══════════════════════════════════════════╝\n\n")
 }
 
 func promptProvider() (Provider, error) {
 	fmt.Println("Step 1: Choose Your Provider")
-	fmt.Println("─────────────────────────────\n")
-	fmt.Println("We recommend starting with one of these providers:\n")
+	fmt.Print("─────────────────────────────\n\n")
+	fmt.Print("We recommend starting with one of these providers:\n\n")
 
 	for i, p := range providers {
 		fmt.Printf("  [%d] %-20s (%s)\n", i+1, p.Name, p.Description)
@@ -280,8 +280,8 @@ func promptProvider() (Provider, error) {
 }
 
 func promptAPIKey(provider Provider) (string, error) {
-	fmt.Println("\nStep 2: API Key Setup")
-	fmt.Println("─────────────────────────\n")
+	fmt.Print("\nStep 2: API Key Setup\n")
+	fmt.Print("─────────────────────────\n\n")
 
 	// Check for environment variable
 	if provider.EnvVar != "" {
@@ -289,7 +289,7 @@ func promptAPIKey(provider Provider) (string, error) {
 			fmt.Printf("✓ Detected: %s environment variable\n\n", provider.EnvVar)
 			fmt.Println("Would you like to:")
 			fmt.Println("  [1] Use detected environment variable")
-			fmt.Println("  [2] Enter API key manually\n")
+			fmt.Print("  [2] Enter API key manually\n\n")
 
 			choice := promptChoice("Your choice", 1, 2)
 			if choice == 1 {
@@ -314,14 +314,14 @@ func promptAPIKey(provider Provider) (string, error) {
 }
 
 func promptModelSelection(provider Provider, apiKey string) (ModelInfo, error) {
-	fmt.Println("\nStep 3: Model Selection")
-	fmt.Println("─────────────────────────\n")
+	fmt.Print("\nStep 3: Model Selection\n")
+	fmt.Print("─────────────────────────\n\n")
 
 	if len(provider.Models) == 0 {
 		return ModelInfo{}, fmt.Errorf("no models available for provider %s", provider.Name)
 	}
 
-	fmt.Println("Available models:\n")
+	fmt.Print("Available models:\n\n")
 	for i, m := range provider.Models {
 		prefix := "  "
 		if m.Recommended {
@@ -335,7 +335,7 @@ func promptModelSelection(provider Provider, apiKey string) (ModelInfo, error) {
 	}
 
 	if provider.Name == "anthropic" {
-		fmt.Println("For security assessment, we recommend claude-sonnet-4.6.\n")
+		fmt.Print("For security assessment, we recommend claude-sonnet-4.6.\n\n")
 	}
 
 	choice := promptChoice("Your choice", 1, len(provider.Models))
@@ -351,14 +351,14 @@ func testConnection(provider Provider, model ModelInfo, apiKey string) error {
 }
 
 func promptAdvancedSetup(primaryProvider Provider, primaryModel ModelInfo, primaryKey string) (*config.Config, error) {
-	fmt.Println("\nStep 5: Multi-Model Routing (Recommended for CLAW)")
-	fmt.Println("─────────────────────────────────────────────────────\n")
+	fmt.Print("\nStep 5: Multi-Model Routing (Recommended for CLAW)\n")
+	fmt.Print("─────────────────────────────────────────────────────\n\n")
 
 	fmt.Println("CLAW works best with multiple models for different tasks:")
 	fmt.Println("  • Planning: Fast model breaks down assessment into phases")
 	fmt.Println("  • Analysis: Powerful model performs deep security analysis")
-	fmt.Println("  • Parsing: Specialized model extracts findings from tool output\n")
-	fmt.Println("This improves accuracy and reduces cost.\n")
+	fmt.Print("  • Parsing: Specialized model extracts findings from tool output\n\n")
+	fmt.Print("This improves accuracy and reduces cost.\n\n")
 
 	fmt.Print("Configure multi-model routing now? [Y/n]: ")
 	scanner := bufio.NewScanner(os.Stdin)
@@ -396,13 +396,13 @@ func createSimpleConfig(provider Provider, model ModelInfo, apiKey string) *conf
 func createAdvancedConfig(primaryProvider Provider, primaryModel ModelInfo, primaryKey string) (*config.Config, error) {
 	cfg := createSimpleConfig(primaryProvider, primaryModel, primaryKey)
 
-	fmt.Println("\nMulti-Model Tier Configuration")
-	fmt.Println("───────────────────────────────\n")
+	fmt.Print("\nMulti-Model Tier Configuration\n")
+	fmt.Print("───────────────────────────────\n\n")
 
 	// Prompt for planning tier
 	fmt.Println("Planning Tier (Fast, Budget-Friendly):")
 	fmt.Println("  Used for: task breakdown, phase planning, tool selection")
-	fmt.Println("  Recommendation: Fast, cheap model\n")
+	fmt.Print("  Recommendation: Fast, cheap model\n\n")
 
 	planningModel, planningKey, err := promptAdditionalModel("planning", primaryProvider, primaryModel, primaryKey)
 	if err != nil {
@@ -410,9 +410,9 @@ func createAdvancedConfig(primaryProvider Provider, primaryModel ModelInfo, prim
 	}
 
 	// Prompt for parsing tier
-	fmt.Println("\nParsing Tier (Structured Output):")
+	fmt.Print("\nParsing Tier (Structured Output):\n")
 	fmt.Println("  Used for: tool output extraction, finding parsing")
-	fmt.Println("  Recommendation: Strong structured output capability\n")
+	fmt.Print("  Recommendation: Strong structured output capability\n\n")
 
 	parsingModel, parsingKey, err := promptAdditionalModel("parsing", primaryProvider, primaryModel, primaryKey)
 	if err != nil {
@@ -598,12 +598,12 @@ func saveConfig(cfg *config.Config) error {
 func printSuccess() {
 	fmt.Println("\n╔═══════════════════════════════════════════╗")
 	fmt.Println("║        You're ready to use CLAW!          ║")
-	fmt.Println("╚═══════════════════════════════════════════╝\n")
+	fmt.Print("╚═══════════════════════════════════════════╝\n\n")
 
 	fmt.Println("Try these commands:")
 	fmt.Println("  picoclaw \"What can you help me with?\"")
 	fmt.Println("  picoclaw scan example.com")
-	fmt.Println("  picoclaw agent --tui\n")
+	fmt.Print("  picoclaw agent --tui\n")
 }
 
 func promptChoice(prompt string, min, max int) int {

@@ -29,7 +29,7 @@ func (m *MCPToolWrapper) Description() string {
 	return m.definition.Description
 }
 
-func (m *MCPToolWrapper) InputSchema() map[string]any {
+func (m *MCPToolWrapper) Parameters() map[string]any {
 	return m.definition.InputSchema
 }
 

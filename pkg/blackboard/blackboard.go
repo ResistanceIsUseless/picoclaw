@@ -46,8 +46,8 @@ type Subscriber func(ctx context.Context, artifact Artifact)
 type Blackboard struct {
 	mu          sync.RWMutex
 	artifacts   map[string][]ArtifactEnvelope // type -> list of artifacts
-	subscribers map[string][]Subscriber        // type -> list of subscribers
-	persister   Persister                      // disk persistence
+	subscribers map[string][]Subscriber       // type -> list of subscribers
+	persister   Persister                     // disk persistence
 }
 
 // New creates a new Blackboard with optional persistence
@@ -144,6 +144,26 @@ func (b *Blackboard) Get(artifactType string) ([]ArtifactEnvelope, error) {
 	result := make([]ArtifactEnvelope, len(artifacts))
 	copy(result, artifacts)
 
+	return result, nil
+}
+
+// GetByType retrieves all artifacts of a given type.
+func (b *Blackboard) GetByType(artifactType string) ([]ArtifactEnvelope, error) {
+	return b.Get(artifactType)
+}
+
+// GetAll retrieves all artifacts across all types.
+func (b *Blackboard) GetAll() ([]ArtifactEnvelope, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]ArtifactEnvelope, 0)
+	for _, artifacts := range b.artifacts {
+		result = append(result, artifacts...)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("no artifacts found")
+	}
 	return result, nil
 }
 

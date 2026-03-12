@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ResistanceIsUseless/picoclaw/pkg/blackboard"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/bus"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/channels"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/config"
@@ -24,6 +25,7 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/integration"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
+	metadataregistry "github.com/ResistanceIsUseless/picoclaw/pkg/registry"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/routing"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/skills"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/state"
@@ -42,6 +44,8 @@ type AgentLoop struct {
 	fallback       *providers.FallbackChain
 	channelManager *channels.Manager
 	tierRouter     *routing.TierRouter // Optional tier-based routing
+	blackboard     *blackboard.Blackboard
+	toolMetadata   *metadataregistry.ToolRegistry
 }
 
 // processOptions configures how a message is processed
@@ -85,14 +89,34 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		})
 	}
 
+	bb := blackboard.New(nil)
+	metadataRegistry := metadataregistry.NewToolRegistry()
+	if err := metadataregistry.RegisterAllTools(metadataRegistry); err != nil {
+		logger.WarnCF("agent", "Failed to initialize tool metadata registry", map[string]any{
+			"error": err.Error(),
+		})
+	}
+
+	for _, agentID := range registry.ListAgentIDs() {
+		agent, ok := registry.GetAgent(agentID)
+		if !ok || agent == nil {
+			continue
+		}
+		agent.ContextBuilder.SetRuntimeContextFunc(func() string {
+			return buildCompactBlackboardSummary(bb)
+		})
+	}
+
 	return &AgentLoop{
-		bus:         msgBus,
-		cfg:         cfg,
-		registry:    registry,
-		state:       stateManager,
-		summarizing: sync.Map{},
-		fallback:    fallbackChain,
-		tierRouter:  tierRouter,
+		bus:          msgBus,
+		cfg:          cfg,
+		registry:     registry,
+		state:        stateManager,
+		summarizing:  sync.Map{},
+		fallback:     fallbackChain,
+		tierRouter:   tierRouter,
+		blackboard:   bb,
+		toolMetadata: metadataRegistry,
 	}
 }
 
@@ -647,7 +671,7 @@ func (al *AgentLoop) runLLMIteration(
 						Usage: &providers.UsageInfo{
 							PromptTokens:     0, // Will be filled by cost tracking
 							CompletionTokens: 0,
-							TotalTokens:     0,
+							TotalTokens:      0,
 						},
 					}
 					return resp, nil
@@ -861,6 +885,17 @@ func (al *AgentLoop) runLLMIteration(
 			contentForLLM := toolResult.ForLLM
 			if contentForLLM == "" && toolResult.Err != nil {
 				contentForLLM = toolResult.Err.Error()
+			}
+
+			if !toolResult.IsError && !toolResult.Async {
+				artifactNote := al.publishToolArtifact(ctx, tc.Name, tc.Arguments, toolResult.RawOutput)
+				if artifactNote != "" {
+					if contentForLLM != "" {
+						contentForLLM += "\n\n" + artifactNote
+					} else {
+						contentForLLM = artifactNote
+					}
+				}
 			}
 
 			// Track last tool output for task classification

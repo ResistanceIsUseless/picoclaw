@@ -45,16 +45,16 @@ type Orchestrator struct {
 
 // PhaseExecution tracks the execution state of a single phase
 type PhaseExecution struct {
-	PhaseName     string
-	StartTime     time.Time
-	EndTime       time.Time
-	Status        PhaseStatus
-	State         *phase.DAGState
-	Contract      *phase.PhaseContract
+	PhaseName      string
+	StartTime      time.Time
+	EndTime        time.Time
+	Status         PhaseStatus
+	State          *phase.DAGState
+	Contract       *phase.PhaseContract
 	ContextBuilder *phase.PhaseContextBuilder
-	Iteration     int
-	Error         error
-	Artifacts     []blackboard.ArtifactEnvelope
+	Iteration      int
+	Error          error
+	Artifacts      []blackboard.ArtifactEnvelope
 }
 
 // PhaseStatus represents the current status of a phase
@@ -143,9 +143,9 @@ func (o *Orchestrator) Execute(ctx context.Context) error {
 func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefinition) error {
 	logger.InfoCF("orchestrator", "Starting phase",
 		map[string]any{
-			"phase":      phaseDef.Name,
-			"objective":  phaseDef.Objective,
-			"max_iters":  phaseDef.MaxIterations,
+			"phase":     phaseDef.Name,
+			"objective": phaseDef.Objective,
+			"max_iters": phaseDef.MaxIterations,
 		})
 
 	// Check dependencies
@@ -155,10 +155,10 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 
 	// Initialize phase execution
 	phaseExec := &PhaseExecution{
-		PhaseName:  phaseDef.Name,
-		StartTime:  time.Now(),
-		Status:     PhaseRunning,
-		Iteration:  0,
+		PhaseName: phaseDef.Name,
+		StartTime: time.Now(),
+		Status:    PhaseRunning,
+		Iteration: 0,
 	}
 
 	// Create contract
@@ -166,7 +166,7 @@ func (o *Orchestrator) executePhase(ctx context.Context, phaseDef *PhaseDefiniti
 	phaseExec.Contract = contract
 
 	// Create DAG state
-	state := phase.NewDAGState(phaseDef.Name, phaseDef.Tools, phaseDef.Dependencies)
+	state := phase.NewDAGState(phaseDef.Name, phaseDef.ResolvedTools(), phaseDef.ResolvedDependencies())
 	phaseExec.State = state
 
 	// Create context builder
@@ -354,6 +354,12 @@ func (o *Orchestrator) createContract(phaseDef *PhaseDefinition) *phase.PhaseCon
 	for _, tool := range phaseDef.RequiredTools {
 		contract.AddRequiredTool(tool)
 	}
+	for _, profileName := range phaseDef.RequiredProfiles {
+		contract.AddRequiredProfile(profileName)
+	}
+	for _, tool := range phaseDef.ResolvedOptionalTools() {
+		contract.AddOptionalTool(tool)
+	}
 
 	// Add required artifacts
 	for _, artifactType := range phaseDef.RequiredArtifacts {
@@ -399,7 +405,8 @@ func (o *Orchestrator) executeIteration(ctx context.Context, phaseDef *PhaseDefi
 
 	// Get tool definitions from registry
 	var toolDefs []providers.ToolDefinition
-	for _, toolName := range phaseDef.Tools {
+	resolvedTools := phaseDef.ResolvedTools()
+	for _, toolName := range resolvedTools {
 		toolDef, err := o.registry.Get(toolName)
 		if err != nil {
 			logger.WarnCF("orchestrator", "Tool not found in registry",
@@ -429,8 +436,8 @@ func (o *Orchestrator) executeIteration(ctx context.Context, phaseDef *PhaseDefi
 
 	logger.DebugCF("orchestrator", "Tool definitions prepared",
 		map[string]any{
-			"phase":      phaseDef.Name,
-			"total_tools": len(phaseDef.Tools),
+			"phase":         phaseDef.Name,
+			"total_tools":   len(resolvedTools),
 			"visible_tools": len(toolDefs),
 		})
 
@@ -475,7 +482,7 @@ func (o *Orchestrator) executeIteration(ctx context.Context, phaseDef *PhaseDefi
 func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinition, phaseExec *PhaseExecution, toolCall providers.ToolCall) error {
 	// Check if tool is available in phase
 	toolAvailable := false
-	for _, availableTool := range phaseDef.Tools {
+	for _, availableTool := range phaseDef.ResolvedTools() {
 		if availableTool == toolCall.Name {
 			toolAvailable = true
 			break
@@ -488,9 +495,9 @@ func (o *Orchestrator) executeTool(ctx context.Context, phaseDef *PhaseDefinitio
 
 	// Create a tool call record in DAGState
 	stateToolCall := &phase.ToolCall{
-		ID:       fmt.Sprintf("%s-%d", toolCall.Name, phaseExec.Iteration),
-		ToolName: toolCall.Name,
-		Status:   phase.StatusRunning,
+		ID:        fmt.Sprintf("%s-%d", toolCall.Name, phaseExec.Iteration),
+		ToolName:  toolCall.Name,
+		Status:    phase.StatusRunning,
 		StartTime: time.Now(),
 	}
 	phaseExec.State.AddToolCall(stateToolCall)

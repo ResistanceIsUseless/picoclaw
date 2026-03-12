@@ -7,17 +7,20 @@ import (
 	"github.com/ResistanceIsUseless/picoclaw/pkg/artifacts"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/blackboard"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools/profiles"
 )
 
 // PhaseContract defines the requirements for a phase to be considered complete
 type PhaseContract struct {
-	PhaseName        string
-	RequiredTools    []string          // Tools that MUST be executed
+	PhaseName         string
+	RequiredTools     []string         // Tools that MUST be executed
+	RequiredProfiles  []string         // Profiles where at least one tool MUST be executed
 	RequiredArtifacts []string         // Artifact types that MUST be produced
-	OptionalTools    []string          // Tools that MAY be executed
-	MinIterations    int               // Minimum number of iterations
-	MaxIterations    int               // Maximum number of iterations
-	SuccessCriteria  []ValidationRule  // Custom validation rules
+	OptionalTools     []string         // Tools that MAY be executed
+	OptionalProfiles  []string         // Profiles that MAY be executed
+	MinIterations     int              // Minimum number of iterations
+	MaxIterations     int              // Maximum number of iterations
+	SuccessCriteria   []ValidationRule // Custom validation rules
 }
 
 // ValidationRule defines a custom validation check for phase completion
@@ -29,11 +32,11 @@ type ValidationRule struct {
 
 // PhaseContext provides context for validation rules
 type PhaseContext struct {
-	Phase         string
-	State         *DAGState
-	Blackboard    *blackboard.Blackboard
-	Artifacts     []blackboard.ArtifactEnvelope
-	Iteration     int
+	Phase      string
+	State      *DAGState
+	Blackboard *blackboard.Blackboard
+	Artifacts  []blackboard.ArtifactEnvelope
+	Iteration  int
 }
 
 // NewPhaseContract creates a new phase contract
@@ -41,8 +44,10 @@ func NewPhaseContract(phaseName string) *PhaseContract {
 	return &PhaseContract{
 		PhaseName:         phaseName,
 		RequiredTools:     make([]string, 0),
+		RequiredProfiles:  make([]string, 0),
 		RequiredArtifacts: make([]string, 0),
 		OptionalTools:     make([]string, 0),
+		OptionalProfiles:  make([]string, 0),
 		MinIterations:     1,
 		MaxIterations:     10,
 		SuccessCriteria:   make([]ValidationRule, 0),
@@ -55,6 +60,12 @@ func (c *PhaseContract) AddRequiredTool(toolName string) *PhaseContract {
 	return c
 }
 
+// AddRequiredProfile adds a tool profile where at least one tool must be executed.
+func (c *PhaseContract) AddRequiredProfile(profileName string) *PhaseContract {
+	c.RequiredProfiles = append(c.RequiredProfiles, profileName)
+	return c
+}
+
 // AddRequiredArtifact adds an artifact type that must be produced
 func (c *PhaseContract) AddRequiredArtifact(artifactType string) *PhaseContract {
 	c.RequiredArtifacts = append(c.RequiredArtifacts, artifactType)
@@ -64,6 +75,12 @@ func (c *PhaseContract) AddRequiredArtifact(artifactType string) *PhaseContract 
 // AddOptionalTool adds a tool that may be executed
 func (c *PhaseContract) AddOptionalTool(toolName string) *PhaseContract {
 	c.OptionalTools = append(c.OptionalTools, toolName)
+	return c
+}
+
+// AddOptionalProfile adds a tool profile that may be executed.
+func (c *PhaseContract) AddOptionalProfile(profileName string) *PhaseContract {
+	c.OptionalProfiles = append(c.OptionalProfiles, profileName)
 	return c
 }
 
@@ -130,10 +147,17 @@ func (c *PhaseContract) validateRequiredTools(state *DAGState) error {
 	for _, call := range state.GetCompletedTools() {
 		completedTools[call.ToolName] = true
 	}
+	completedProfiles := getCompletedProfiles(state)
 
 	for _, requiredTool := range c.RequiredTools {
 		if !completedTools[requiredTool] {
 			missingTools = append(missingTools, requiredTool)
+		}
+	}
+
+	for _, requiredProfile := range c.RequiredProfiles {
+		if !completedProfiles[requiredProfile] {
+			missingTools = append(missingTools, requiredProfile+" profile")
 		}
 	}
 
@@ -142,6 +166,21 @@ func (c *PhaseContract) validateRequiredTools(state *DAGState) error {
 	}
 
 	return nil
+}
+
+func getCompletedProfiles(state *DAGState) map[string]bool {
+	completedProfiles := make(map[string]bool)
+	if state == nil {
+		return completedProfiles
+	}
+
+	for _, call := range state.GetCompletedTools() {
+		if profile, ok := profiles.ResolveToolProfile(call.ToolName); ok {
+			completedProfiles[profile.Name] = true
+		}
+	}
+
+	return completedProfiles
 }
 
 // validateRequiredArtifacts ensures all required artifact types have been produced
@@ -208,6 +247,14 @@ func (c *PhaseContract) GetCompletionStatus(ctx *PhaseContext) string {
 				sb.WriteString(fmt.Sprintf("  ✗ %s (not executed)\n", tool))
 			}
 		}
+		completedProfiles := getCompletedProfiles(ctx.State)
+		for _, profileName := range c.RequiredProfiles {
+			if completedProfiles[profileName] {
+				sb.WriteString(fmt.Sprintf("  ✓ %s profile\n", profileName))
+			} else {
+				sb.WriteString(fmt.Sprintf("  ✗ %s profile (not executed)\n", profileName))
+			}
+		}
 		sb.WriteString("\n")
 	}
 
@@ -261,6 +308,7 @@ func (c *PhaseContract) GetCompletionStatus(ctx *PhaseContext) string {
 var PredefinedContracts = map[string]*PhaseContract{
 	"recon": NewPhaseContract("recon").
 		AddRequiredTool("subfinder").
+		AddRequiredProfile(profiles.ProfileSubdomainEnum).
 		AddRequiredArtifact(artifacts.ArtifactSubdomainList).
 		SetIterationLimits(1, 5).
 		AddValidationRule(ValidationRule{
@@ -279,6 +327,7 @@ var PredefinedContracts = map[string]*PhaseContract{
 
 	"port_scan": NewPhaseContract("port_scan").
 		AddRequiredTool("nmap").
+		AddRequiredProfile(profiles.ProfilePortScan).
 		AddRequiredArtifact(artifacts.ArtifactPortScanResult).
 		SetIterationLimits(1, 3).
 		AddValidationRule(ValidationRule{
@@ -297,11 +346,13 @@ var PredefinedContracts = map[string]*PhaseContract{
 
 	"service_discovery": NewPhaseContract("service_discovery").
 		AddRequiredTool("httpx").
+		AddRequiredProfile(profiles.ProfileWebProbe).
 		AddRequiredArtifact(artifacts.ArtifactServiceFingerprint).
 		SetIterationLimits(1, 5),
 
 	"vulnerability_scan": NewPhaseContract("vulnerability_scan").
 		AddRequiredTool("nuclei").
+		AddRequiredProfile(profiles.ProfileVulnScan).
 		AddRequiredArtifact(artifacts.ArtifactVulnerabilityList).
 		SetIterationLimits(1, 10).
 		AddValidationRule(ValidationRule{
@@ -354,8 +405,10 @@ func NewCustomContract(baseName string, modifications func(*PhaseContract)) (*Ph
 	custom := &PhaseContract{
 		PhaseName:         base.PhaseName,
 		RequiredTools:     append([]string{}, base.RequiredTools...),
+		RequiredProfiles:  append([]string{}, base.RequiredProfiles...),
 		RequiredArtifacts: append([]string{}, base.RequiredArtifacts...),
 		OptionalTools:     append([]string{}, base.OptionalTools...),
+		OptionalProfiles:  append([]string{}, base.OptionalProfiles...),
 		MinIterations:     base.MinIterations,
 		MaxIterations:     base.MaxIterations,
 		SuccessCriteria:   append([]ValidationRule{}, base.SuccessCriteria...),

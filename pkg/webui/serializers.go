@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/ResistanceIsUseless/picoclaw/pkg/blackboard"
@@ -23,13 +24,13 @@ type PipelineStatus struct {
 
 // PhaseDetail represents detailed phase execution state
 type PhaseDetail struct {
-	Name          string            `json:"name"`
-	Status        string            `json:"status"`
-	Iteration     int               `json:"iteration"`
-	MaxIterations int               `json:"max_iterations"`
-	DAGState      *DAGStateView     `json:"dag_state"`
-	Contract      *ContractView     `json:"contract"`
-	Tools         []ToolExecution   `json:"tools"`
+	Name          string          `json:"name"`
+	Status        string          `json:"status"`
+	Iteration     int             `json:"iteration"`
+	MaxIterations int             `json:"max_iterations"`
+	DAGState      *DAGStateView   `json:"dag_state"`
+	Contract      *ContractView   `json:"contract"`
+	Tools         []ToolExecution `json:"tools"`
 }
 
 // DAGStateView represents the DAG state for API
@@ -53,6 +54,7 @@ type ToolCallView struct {
 type ContractView struct {
 	Satisfied         bool     `json:"satisfied"`
 	RequiredTools     []string `json:"required_tools"`
+	RequiredProfiles  []string `json:"required_profiles,omitempty"`
 	RequiredArtifacts []string `json:"required_artifacts"`
 	Progress          float64  `json:"progress"`
 	MinIterations     int      `json:"min_iterations"`
@@ -184,7 +186,7 @@ func SerializePhaseDetail(phaseExec *orchestrator.PhaseExecution) *PhaseDetail {
 				ID:      toolCall.ID,
 				Name:    toolCall.ToolName,
 				Status:  string(toolCall.Status),
-				Summary: toolCall.OutputSummary,
+				Summary: toolCall.Result,
 				Started: toolCall.StartTime,
 				Ended:   toolCall.EndTime,
 			})
@@ -196,6 +198,7 @@ func SerializePhaseDetail(phaseExec *orchestrator.PhaseExecution) *PhaseDetail {
 		phaseCtx := &phase.PhaseContext{
 			Phase:      phaseExec.PhaseName,
 			State:      phaseExec.State,
+			Blackboard: nil,
 			Artifacts:  phaseExec.Artifacts,
 			Iteration:  phaseExec.Iteration,
 		}
@@ -203,6 +206,7 @@ func SerializePhaseDetail(phaseExec *orchestrator.PhaseExecution) *PhaseDetail {
 		detail.Contract = &ContractView{
 			Satisfied:         phaseExec.Contract.CanComplete(phaseCtx),
 			RequiredTools:     phaseExec.Contract.RequiredTools,
+			RequiredProfiles:  phaseExec.Contract.RequiredProfiles,
 			RequiredArtifacts: phaseExec.Contract.RequiredArtifacts,
 			MinIterations:     phaseExec.Contract.MinIterations,
 			MaxIterations:     phaseExec.Contract.MaxIterations,
@@ -210,7 +214,7 @@ func SerializePhaseDetail(phaseExec *orchestrator.PhaseExecution) *PhaseDetail {
 
 		// Calculate contract progress
 		satisfied := 0
-		total := len(phaseExec.Contract.RequiredTools) + len(phaseExec.Contract.RequiredArtifacts)
+		total := len(phaseExec.Contract.RequiredTools) + len(phaseExec.Contract.RequiredProfiles) + len(phaseExec.Contract.RequiredArtifacts)
 		if total > 0 {
 			// This is simplified - could check actual completion
 			if phaseExec.State != nil {
@@ -239,7 +243,7 @@ func SerializeGraphExport(g *graph.Graph, frontier *graph.Frontier) *GraphExport
 
 		export.Nodes = append(export.Nodes, NodeView{
 			ID:         node.ID,
-			Type:       node.Type,
+			Type:       string(node.EntityType),
 			Label:      node.Label,
 			Properties: node.Properties,
 			IsFrontier: isFrontier,
@@ -250,9 +254,9 @@ func SerializeGraphExport(g *graph.Graph, frontier *graph.Frontier) *GraphExport
 	for _, edge := range g.GetAllEdges() {
 		export.Edges = append(export.Edges, EdgeView{
 			ID:         edge.ID,
-			Source:     edge.Source,
-			Target:     edge.Target,
-			Type:       edge.Type,
+			Source:     edge.From,
+			Target:     edge.To,
+			Type:       string(edge.RelationType),
 			Properties: edge.Properties,
 		})
 	}
@@ -266,7 +270,7 @@ func SerializeArtifacts(artifacts []blackboard.ArtifactEnvelope) []ArtifactView 
 
 	for _, artifact := range artifacts {
 		view := ArtifactView{
-			ID:        artifact.Metadata.ID,
+			ID:        fmt.Sprintf("%s-%d", artifact.Metadata.Type, artifact.Metadata.CreatedAt.UnixNano()),
 			Type:      artifact.Metadata.Type,
 			Phase:     artifact.Metadata.Phase,
 			Domain:    artifact.Metadata.Domain,

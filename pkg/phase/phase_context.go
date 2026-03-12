@@ -2,6 +2,7 @@ package phase
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,10 +38,10 @@ type PhaseContextInput struct {
 // ContextSection represents a section of the context prompt
 type ContextSection struct {
 	Name      string
-	Priority  int    // higher priority sections come first
+	Priority  int // higher priority sections come first
 	Content   string
-	Cacheable bool   // can this section be KV cached?
-	TokenCost int    // approximate token count
+	Cacheable bool // can this section be KV cached?
+	TokenCost int  // approximate token count
 }
 
 // NewPhaseContextBuilder creates a new phase-scoped context builder
@@ -172,6 +173,9 @@ func (b *PhaseContextBuilder) buildSystemPrompt(input *PhaseContextInput) string
 		// List available tools for this phase
 		tools := input.Contract.RequiredTools
 		tools = append(tools, input.Contract.OptionalTools...)
+		for _, profileName := range input.Contract.RequiredProfiles {
+			sb.WriteString(fmt.Sprintf("- **%s profile**: at least one matching tool must be executed\n", profileName))
+		}
 		for _, toolName := range tools {
 			// Would fetch tool definition from registry
 			sb.WriteString(fmt.Sprintf("- **%s**: [Tool description would go here]\n", toolName))
@@ -203,6 +207,14 @@ func (b *PhaseContextBuilder) buildPhaseContext(input *PhaseContextInput) string
 		sb.WriteString("### Required Tool Executions\n")
 		for _, tool := range input.Contract.RequiredTools {
 			sb.WriteString(fmt.Sprintf("- %s\n", tool))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(input.Contract.RequiredProfiles) > 0 {
+		sb.WriteString("### Required Tool Profiles\n")
+		for _, profileName := range input.Contract.RequiredProfiles {
+			sb.WriteString(fmt.Sprintf("- %s (at least one matching tool)\n", profileName))
 		}
 		sb.WriteString("\n")
 	}
@@ -318,23 +330,43 @@ func (b *PhaseContextBuilder) summarizeArtifact(envelope *blackboard.ArtifactEnv
 // applyTokenBudget trims sections if over budget
 func (b *PhaseContextBuilder) applyTokenBudget(sections []ContextSection) []ContextSection {
 	if b.TokenBudget <= 0 {
-		return sections // No budget constraint
+		return sortSectionsByPriority(sections)
 	}
 
+	sections = sortSectionsByPriority(sections)
 	totalTokens := b.calculateTotalTokens(sections)
 	if totalTokens <= b.TokenBudget {
 		return sections // Under budget
 	}
 
-	// Over budget - would implement trimming logic
+	core := make([]ContextSection, 0)
+	optional := make([]ContextSection, 0)
+	for _, section := range sections {
+		if section.Priority >= 800 {
+			core = append(core, section)
+		} else {
+			optional = append(optional, section)
+		}
+	}
+
+	trimmed := append([]ContextSection{}, core...)
+	currentTokens := b.calculateTotalTokens(trimmed)
+	for _, section := range optional {
+		if currentTokens+section.TokenCost <= b.TokenBudget {
+			trimmed = append(trimmed, section)
+			currentTokens += section.TokenCost
+		}
+	}
+
 	logger.WarnCF("phase_context", "Token budget exceeded",
 		map[string]any{
 			"budget":  b.TokenBudget,
 			"actual":  totalTokens,
-			"overage": totalTokens - b.TokenBudget,
+			"trimmed": currentTokens,
+			"dropped": len(sections) - len(trimmed),
 		})
 
-	return sections
+	return sortSectionsByPriority(trimmed)
 }
 
 // calculateTotalTokens sums token costs across sections
@@ -350,13 +382,20 @@ func (b *PhaseContextBuilder) calculateTotalTokens(sections []ContextSection) in
 func RenderSections(sections []ContextSection) string {
 	var sb strings.Builder
 
-	// Sort by priority (would implement proper sorting)
-	for _, section := range sections {
+	for _, section := range sortSectionsByPriority(sections) {
 		sb.WriteString(section.Content)
 		sb.WriteString("\n---\n\n")
 	}
 
 	return sb.String()
+}
+
+func sortSectionsByPriority(sections []ContextSection) []ContextSection {
+	sorted := append([]ContextSection(nil), sections...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].Priority > sorted[j].Priority
+	})
+	return sorted
 }
 
 // estimateTokens rough token estimation (4 chars ≈ 1 token)

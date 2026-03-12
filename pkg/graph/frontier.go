@@ -9,11 +9,11 @@ import (
 
 // FrontierNode represents a node with unknown properties that should be explored
 type FrontierNode struct {
-	Node            *Node
-	UnknownProps    []string
-	InterestScore   float64
-	HighInterest    int // count of high-interest unknown properties
-	Priority        int // calculated priority (higher = more important)
+	Node          *Node
+	UnknownProps  []string
+	InterestScore float64
+	HighInterest  int // count of high-interest unknown properties
+	Priority      int // calculated priority (higher = more important)
 }
 
 // Frontier represents the exploration frontier - nodes with unknown properties
@@ -160,6 +160,16 @@ func (f *Frontier) IsEmpty() bool {
 	return len(f.nodes) == 0
 }
 
+// Contains returns true if the frontier includes the given node ID.
+func (f *Frontier) Contains(nodeID string) bool {
+	for _, fn := range f.nodes {
+		if fn.Node != nil && fn.Node.ID == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
 // GetByEntityType returns frontier nodes of a specific entity type
 func (f *Frontier) GetByEntityType(entityType EntityType) []*FrontierNode {
 	result := make([]*FrontierNode, 0)
@@ -297,26 +307,26 @@ func getToolsForProperty(entityType EntityType, propertyName string) []string {
 			"services":   []string{"nmap"},
 		},
 		EntityPort: {
-			"service":          []string{"nmap"},
-			"version":          []string{"nmap"},
-			"vulnerabilities":  []string{"nuclei", "nmap_vulners"},
+			"service":         []string{"nmap"},
+			"version":         []string{"nmap"},
+			"vulnerabilities": []string{"nuclei", "nmap_vulners"},
 		},
 		EntityEndpoint: {
-			"parameters":        []string{"katana", "paramspider"},
-			"vulnerabilities":   []string{"nuclei", "nikto"},
+			"parameters":      []string{"katana", "paramspider"},
+			"vulnerabilities": []string{"nuclei", "nikto"},
 		},
 		EntityParameter: {
-			"injectable":        []string{"sqlmap", "xsstrike"},
-			"sink_type":         []string{"manual_analysis"},
+			"injectable": []string{"sqlmap", "xsstrike"},
+			"sink_type":  []string{"manual_analysis"},
 		},
 		EntityFunction: {
-			"calls":                  []string{"codeql"},
-			"dangerous_sinks":        []string{"codeql", "semgrep"},
-			"buffer_overflow_path":   []string{"codeql"},
+			"calls":                []string{"codeql"},
+			"dangerous_sinks":      []string{"codeql", "semgrep"},
+			"buffer_overflow_path": []string{"codeql"},
 		},
 		EntitySharedLibrary: {
-			"cves":                   []string{"cve_lookup"},
-			"reachable_functions":    []string{"ghidra", "rizin"},
+			"cves":                []string{"cve_lookup"},
+			"reachable_functions": []string{"ghidra", "rizin"},
 		},
 	}
 

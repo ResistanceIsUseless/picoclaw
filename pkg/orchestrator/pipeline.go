@@ -2,6 +2,9 @@ package orchestrator
 
 import (
 	"fmt"
+	"sort"
+
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools/profiles"
 )
 
 // Pipeline defines the complete assessment workflow
@@ -14,16 +17,19 @@ type Pipeline struct {
 
 // PhaseDefinition defines a single phase in the pipeline
 type PhaseDefinition struct {
-	Name              string
-	Objective         string
-	Tools             []string          // Available tools for this phase
-	RequiredTools     []string          // Tools that MUST be executed
-	RequiredArtifacts []string          // Artifact types that MUST be produced
-	Dependencies      map[string][]string // Tool dependencies (tool -> required tools)
-	DependsOn         []string          // Phase dependencies
-	MinIterations     int
-	MaxIterations     int
-	TokenBudget       int
+	Name                string
+	Objective           string
+	Tools               []string            // Explicit tools available for this phase
+	ToolProfiles        []string            // Tool profiles available for this phase
+	RequiredTools       []string            // Explicit tools that MUST be executed
+	RequiredProfiles    []string            // Tool profiles where at least one tool MUST be executed
+	RequiredArtifacts   []string            // Artifact types that MUST be produced
+	Dependencies        map[string][]string // Tool dependencies (tool -> required tools/profiles)
+	ProfileDependencies map[string][]string // Profile dependencies (tool/profile -> required profiles)
+	DependsOn           []string            // Phase dependencies
+	MinIterations       int
+	MaxIterations       int
+	TokenBudget         int
 }
 
 // NewPipeline creates a new pipeline
@@ -100,8 +106,8 @@ func (pd *PhaseDefinition) Validate() error {
 		return fmt.Errorf("phase objective cannot be empty")
 	}
 
-	if len(pd.Tools) == 0 {
-		return fmt.Errorf("phase must have at least one tool")
+	if len(pd.Tools) == 0 && len(pd.ToolProfiles) == 0 {
+		return fmt.Errorf("phase must have at least one tool or tool profile")
 	}
 
 	if pd.MinIterations < 1 {
@@ -114,7 +120,7 @@ func (pd *PhaseDefinition) Validate() error {
 
 	// Validate that required tools are in available tools
 	toolSet := make(map[string]bool)
-	for _, tool := range pd.Tools {
+	for _, tool := range pd.ResolvedTools() {
 		toolSet[tool] = true
 	}
 
@@ -124,7 +130,91 @@ func (pd *PhaseDefinition) Validate() error {
 		}
 	}
 
+	for _, requiredProfile := range pd.RequiredProfiles {
+		if len(profiles.ToolsForProfile(requiredProfile)) == 0 {
+			return fmt.Errorf("required profile %q is unknown", requiredProfile)
+		}
+	}
+
 	return nil
+}
+
+func (pd *PhaseDefinition) ResolvedTools() []string {
+	seen := make(map[string]bool)
+	tools := make([]string, 0, len(pd.Tools))
+
+	for _, tool := range pd.Tools {
+		if !seen[tool] {
+			seen[tool] = true
+			tools = append(tools, tool)
+		}
+	}
+
+	for _, profileName := range pd.ToolProfiles {
+		for _, tool := range profiles.ToolsForProfile(profileName) {
+			if !seen[tool] {
+				seen[tool] = true
+				tools = append(tools, tool)
+			}
+		}
+	}
+
+	sort.Strings(tools)
+	return tools
+}
+
+func (pd *PhaseDefinition) ResolvedOptionalTools() []string {
+	resolved := pd.ResolvedTools()
+	required := make(map[string]bool)
+	for _, tool := range pd.RequiredTools {
+		required[tool] = true
+	}
+	for _, profileName := range pd.RequiredProfiles {
+		for _, tool := range profiles.ToolsForProfile(profileName) {
+			required[tool] = true
+		}
+	}
+
+	optional := make([]string, 0, len(resolved))
+	for _, tool := range resolved {
+		if !required[tool] {
+			optional = append(optional, tool)
+		}
+	}
+	return optional
+}
+
+func (pd *PhaseDefinition) ResolvedDependencies() map[string][]string {
+	resolved := make(map[string][]string)
+	for toolName, deps := range pd.Dependencies {
+		resolved[toolName] = append([]string{}, deps...)
+	}
+
+	for target, dependencyProfiles := range pd.ProfileDependencies {
+		for _, profileName := range dependencyProfiles {
+			dependencyToken := "profile:" + profileName
+			if profile, ok := profiles.ResolveToolProfile(target); ok {
+				for _, toolName := range profiles.ToolsForProfile(profile.Name) {
+					resolved[toolName] = appendIfMissing(resolved[toolName], dependencyToken)
+				}
+				continue
+			}
+			for _, toolName := range profiles.ToolsForProfile(target) {
+				resolved[toolName] = appendIfMissing(resolved[toolName], dependencyToken)
+			}
+		}
+	}
+
+	return resolved
+}
+
+func appendIfMissing(items []string, value string) []string {
+	for _, item := range items {
+		if item == value {
+			return items
+		}
+	}
+	return append(items, value)
 }
 
 // checkCircularDependencies detects circular phase dependencies
@@ -240,8 +330,9 @@ var PredefinedPipelines = map[string]*Pipeline{
 		AddPhase(&PhaseDefinition{
 			Name:              "recon",
 			Objective:         "Discover subdomains and infrastructure",
-			Tools:             []string{"subfinder", "amass", "crtsh"},
-			RequiredTools:     []string{"subfinder"},
+			Tools:             []string{"crtsh"},
+			ToolProfiles:      []string{profiles.ProfileSubdomainEnum},
+			RequiredProfiles:  []string{profiles.ProfileSubdomainEnum},
 			RequiredArtifacts: []string{"SubdomainList"},
 			MinIterations:     1,
 			MaxIterations:     5,
@@ -250,8 +341,8 @@ var PredefinedPipelines = map[string]*Pipeline{
 		AddPhase(&PhaseDefinition{
 			Name:              "port_scan",
 			Objective:         "Identify open ports and services",
-			Tools:             []string{"nmap", "masscan"},
-			RequiredTools:     []string{"nmap"},
+			ToolProfiles:      []string{profiles.ProfilePortScan},
+			RequiredProfiles:  []string{profiles.ProfilePortScan},
 			RequiredArtifacts: []string{"PortScanResult"},
 			DependsOn:         []string{"recon"},
 			MinIterations:     1,
@@ -261,8 +352,8 @@ var PredefinedPipelines = map[string]*Pipeline{
 		AddPhase(&PhaseDefinition{
 			Name:              "service_discovery",
 			Objective:         "Fingerprint services and technologies",
-			Tools:             []string{"httpx", "whatweb", "wappalyzer"},
-			RequiredTools:     []string{"httpx"},
+			ToolProfiles:      []string{profiles.ProfileWebProbe},
+			RequiredProfiles:  []string{profiles.ProfileWebProbe},
 			RequiredArtifacts: []string{"ServiceFingerprint"},
 			DependsOn:         []string{"port_scan"},
 			MinIterations:     1,
@@ -272,8 +363,8 @@ var PredefinedPipelines = map[string]*Pipeline{
 		AddPhase(&PhaseDefinition{
 			Name:              "vulnerability_scan",
 			Objective:         "Identify vulnerabilities in discovered services",
-			Tools:             []string{"nuclei", "nikto", "wpscan"},
-			RequiredTools:     []string{"nuclei"},
+			ToolProfiles:      []string{profiles.ProfileVulnScan},
+			RequiredProfiles:  []string{profiles.ProfileVulnScan},
 			RequiredArtifacts: []string{"VulnerabilityList"},
 			DependsOn:         []string{"service_discovery"},
 			MinIterations:     1,
@@ -285,8 +376,8 @@ var PredefinedPipelines = map[string]*Pipeline{
 		AddPhase(&PhaseDefinition{
 			Name:              "recon",
 			Objective:         "Discover subdomains",
-			Tools:             []string{"subfinder"},
-			RequiredTools:     []string{"subfinder"},
+			ToolProfiles:      []string{profiles.ProfileSubdomainEnum},
+			RequiredProfiles:  []string{profiles.ProfileSubdomainEnum},
 			RequiredArtifacts: []string{"SubdomainList"},
 			MinIterations:     1,
 			MaxIterations:     3,
@@ -295,13 +386,16 @@ var PredefinedPipelines = map[string]*Pipeline{
 		AddPhase(&PhaseDefinition{
 			Name:              "quick_scan",
 			Objective:         "Quick vulnerability scan",
-			Tools:             []string{"httpx", "nuclei"},
-			RequiredTools:     []string{"httpx", "nuclei"},
+			ToolProfiles:      []string{profiles.ProfileWebProbe, profiles.ProfileVulnScan},
+			RequiredProfiles:  []string{profiles.ProfileWebProbe, profiles.ProfileVulnScan},
 			RequiredArtifacts: []string{"WebFindings"},
-			DependsOn:         []string{"recon"},
-			MinIterations:     1,
-			MaxIterations:     5,
-			TokenBudget:       8000,
+			ProfileDependencies: map[string][]string{
+				profiles.ProfileVulnScan: {profiles.ProfileWebProbe},
+			},
+			DependsOn:     []string{"recon"},
+			MinIterations: 1,
+			MaxIterations: 5,
+			TokenBudget:   8000,
 		}),
 }
 

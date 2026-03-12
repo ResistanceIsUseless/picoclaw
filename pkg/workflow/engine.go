@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
+	"github.com/google/uuid"
 )
 
 // Engine manages workflow execution and state
@@ -84,21 +84,23 @@ func (e *Engine) GetContextPrompt() string {
 		// Steps
 		exec := e.getCurrentPhaseExecution()
 		if exec != nil {
-			sb.WriteString("### Steps:\n")
-			for _, step := range phase.Steps {
-				status := "○"
-				if e.isStepComplete(step.ID, exec) {
-					status = "✓"
-				}
+			nextStep := e.getNextActionableStep(phase, exec)
+			if nextStep != nil {
 				required := ""
-				if step.Required {
+				if nextStep.Required {
 					required = " (required)"
 				}
-				sb.WriteString(fmt.Sprintf("- %s %s%s\n", status, step.Name, required))
-				if step.Description != "" {
-					sb.WriteString(fmt.Sprintf("  %s\n", step.Description))
+				sb.WriteString(fmt.Sprintf("### Next Action\n- %s%s\n", nextStep.Name, required))
+				if nextStep.Description != "" {
+					sb.WriteString(fmt.Sprintf("  %s\n", nextStep.Description))
 				}
+				sb.WriteString("\n")
 			}
+
+			remainingRequired, remainingOptional := e.getRemainingStepCounts(phase, exec)
+			sb.WriteString("### Phase Progress\n")
+			sb.WriteString(fmt.Sprintf("- Remaining required steps: %d\n", remainingRequired))
+			sb.WriteString(fmt.Sprintf("- Remaining optional steps: %d\n", remainingOptional))
 			sb.WriteString("\n")
 		}
 
@@ -148,6 +150,38 @@ func (e *Engine) GetContextPrompt() string {
 	return sb.String()
 }
 
+func (e *Engine) getNextActionableStep(phase Phase, exec *PhaseExecution) *Step {
+	for i := range phase.Steps {
+		step := &phase.Steps[i]
+		if step.Required && !e.isStepComplete(step.ID, exec) {
+			return step
+		}
+	}
+	for i := range phase.Steps {
+		step := &phase.Steps[i]
+		if !e.isStepComplete(step.ID, exec) {
+			return step
+		}
+	}
+	return nil
+}
+
+func (e *Engine) getRemainingStepCounts(phase Phase, exec *PhaseExecution) (int, int) {
+	remainingRequired := 0
+	remainingOptional := 0
+	for _, step := range phase.Steps {
+		if e.isStepComplete(step.ID, exec) {
+			continue
+		}
+		if step.Required {
+			remainingRequired++
+		} else {
+			remainingOptional++
+		}
+	}
+	return remainingRequired, remainingOptional
+}
+
 // MarkStepComplete marks a step as complete in the current phase
 func (e *Engine) MarkStepComplete(stepID string) error {
 	exec := e.getCurrentPhaseExecution()
@@ -184,7 +218,7 @@ func (e *Engine) CreateBranch(condition, description string) error {
 	e.state.ActiveBranches = append(e.state.ActiveBranches, branch)
 
 	logger.InfoCF(e.component, "Branch created", map[string]any{
-		"condition": condition,
+		"condition":   condition,
 		"description": description,
 	})
 

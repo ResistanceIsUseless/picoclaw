@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools/profiles"
 )
 
 // ToolStatus represents the execution state of a tool in the current phase
@@ -35,9 +36,9 @@ type ToolCall struct {
 
 // DAGState represents the current state of tool execution in a phase
 type DAGState struct {
-	PhaseName   string
-	ToolCalls   []*ToolCall
-	AvailableTools []string // Tools that can be called in this phase
+	PhaseName      string
+	ToolCalls      []*ToolCall
+	AvailableTools []string            // Tools that can be called in this phase
 	Dependencies   map[string][]string // Tool name -> list of tool names it depends on
 }
 
@@ -97,15 +98,8 @@ func (d *DAGState) GetToolStatus(toolName string) ToolStatus {
 
 	// Check if all dependencies are completed
 	allDepsCompleted := true
-	for _, depTool := range deps {
-		depCompleted := false
-		for _, call := range d.ToolCalls {
-			if call.ToolName == depTool && call.Status == StatusCompleted {
-				depCompleted = true
-				break
-			}
-		}
-		if !depCompleted {
+	for _, dependency := range deps {
+		if !d.isDependencySatisfied(dependency) {
 			allDepsCompleted = false
 			break
 		}
@@ -129,6 +123,11 @@ func (d *DAGState) GetCompletedTools() []*ToolCall {
 	return completed
 }
 
+// GetToolCalls returns all tool calls recorded in this phase.
+func (d *DAGState) GetToolCalls() []*ToolCall {
+	return d.ToolCalls
+}
+
 // GetReadyTools returns a list of tools that can be called now
 func (d *DAGState) GetReadyTools() []string {
 	ready := make([]string, 0)
@@ -148,16 +147,9 @@ func (d *DAGState) GetBlockedTools() map[string][]string {
 			// Find which dependencies are incomplete
 			incompleteDeps := make([]string, 0)
 			if deps, hasDeps := d.Dependencies[toolName]; hasDeps {
-				for _, depTool := range deps {
-					depCompleted := false
-					for _, call := range d.ToolCalls {
-						if call.ToolName == depTool && call.Status == StatusCompleted {
-							depCompleted = true
-							break
-						}
-					}
-					if !depCompleted {
-						incompleteDeps = append(incompleteDeps, depTool)
+				for _, dependency := range deps {
+					if !d.isDependencySatisfied(dependency) {
+						incompleteDeps = append(incompleteDeps, dependency)
 					}
 				}
 			}
@@ -212,7 +204,7 @@ func (d *DAGState) RenderState() string {
 					if i > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(dep + " ✓")
+					sb.WriteString(formatDependencyLabel(dep) + " ✓")
 				}
 				sb.WriteString("]")
 			}
@@ -228,7 +220,7 @@ func (d *DAGState) RenderState() string {
 		for toolName, incompleteDeps := range blocked {
 			sb.WriteString(fmt.Sprintf("  **%s** — waiting for: %s\n",
 				toolName,
-				strings.Join(incompleteDeps, ", ")))
+				formatDependencyList(incompleteDeps)))
 		}
 		sb.WriteString("\n")
 	}
@@ -284,6 +276,50 @@ func (d *DAGState) RenderState() string {
 	}
 
 	return sb.String()
+}
+
+func (d *DAGState) isDependencySatisfied(dependency string) bool {
+	if strings.HasPrefix(dependency, "profile:") {
+		profileName := strings.TrimPrefix(dependency, "profile:")
+		return d.isProfileCompleted(profileName)
+	}
+	return d.isToolCompleted(dependency)
+}
+
+func (d *DAGState) isToolCompleted(toolName string) bool {
+	for _, call := range d.ToolCalls {
+		if call.ToolName == toolName && call.Status == StatusCompleted {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *DAGState) isProfileCompleted(profileName string) bool {
+	for _, call := range d.ToolCalls {
+		if call.Status != StatusCompleted {
+			continue
+		}
+		if profile, ok := profiles.ResolveToolProfile(call.ToolName); ok && profile.Name == profileName {
+			return true
+		}
+	}
+	return false
+}
+
+func formatDependencyList(dependencies []string) string {
+	formatted := make([]string, 0, len(dependencies))
+	for _, dep := range dependencies {
+		formatted = append(formatted, formatDependencyLabel(dep))
+	}
+	return strings.Join(formatted, ", ")
+}
+
+func formatDependencyLabel(dependency string) string {
+	if strings.HasPrefix(dependency, "profile:") {
+		return strings.TrimPrefix(dependency, "profile:") + " profile"
+	}
+	return dependency
 }
 
 // IsPhaseComplete checks if all required tools have been executed
@@ -357,12 +393,12 @@ func (d *DAGState) Clone() *DAGState {
 // Snapshot returns a serializable summary of the current state
 func (d *DAGState) Snapshot() map[string]interface{} {
 	return map[string]interface{}{
-		"phase":          d.PhaseName,
-		"total_calls":    len(d.ToolCalls),
-		"completed":      len(d.GetCompletedTools()),
-		"ready":          len(d.GetReadyTools()),
-		"blocked":        len(d.GetBlockedTools()),
-		"progress_pct":   d.GetProgress(),
-		"last_updated":   time.Now(),
+		"phase":        d.PhaseName,
+		"total_calls":  len(d.ToolCalls),
+		"completed":    len(d.GetCompletedTools()),
+		"ready":        len(d.GetReadyTools()),
+		"blocked":      len(d.GetBlockedTools()),
+		"progress_pct": d.GetProgress(),
+		"last_updated": time.Now(),
 	}
 }

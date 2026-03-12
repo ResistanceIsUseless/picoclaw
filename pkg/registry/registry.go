@@ -15,7 +15,7 @@ type ToolDefinition struct {
 	Tier        ToolTier               `json:"tier"`
 	InputSchema map[string]interface{} `json:"input_schema"`
 	OutputType  string                 `json:"output_type"` // artifact type it produces
-	Parser      OutputParser           `json:"-"` // function to parse raw output
+	Parser      OutputParser           `json:"-"`           // function to parse raw output
 }
 
 // OutputParser converts raw tool output into structured data
@@ -146,6 +146,18 @@ func (r *ToolRegistry) List() []string {
 	}
 
 	return names
+}
+
+// ListAll returns all registered tool definitions.
+func (r *ToolRegistry) ListAll() []*ToolDefinition {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	tools := make([]*ToolDefinition, 0, len(r.tools))
+	for _, tool := range r.tools {
+		tools = append(tools, tool)
+	}
+	return tools
 }
 
 // Count returns the total number of registered tools

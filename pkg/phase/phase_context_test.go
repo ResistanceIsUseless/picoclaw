@@ -231,12 +231,12 @@ func TestRenderSections(t *testing.T) {
 	sections := []ContextSection{
 		{
 			Name:     "section1",
-			Priority: 100,
+			Priority: 50,
 			Content:  "Section 1 content",
 		},
 		{
 			Name:     "section2",
-			Priority: 50,
+			Priority: 100,
 			Content:  "Section 2 content",
 		},
 	}
@@ -246,6 +246,7 @@ func TestRenderSections(t *testing.T) {
 	assert.Contains(t, rendered, "Section 1 content")
 	assert.Contains(t, rendered, "Section 2 content")
 	assert.Contains(t, rendered, "---")
+	assert.Less(t, strings.Index(rendered, "Section 2 content"), strings.Index(rendered, "Section 1 content"))
 }
 
 func TestPhaseContextCache(t *testing.T) {
@@ -362,9 +363,9 @@ func TestCacheableFlags(t *testing.T) {
 	}
 }
 
-func TestTokenBudgetWarning(t *testing.T) {
-	// Create builder with very small token budget
-	builder := NewPhaseContextBuilder("recon", "Discover subdomains", 10)
+func TestTokenBudgetTrimming(t *testing.T) {
+	// Create builder with small token budget that preserves only high priority sections
+	builder := NewPhaseContextBuilder("recon", "Discover subdomains", 220)
 
 	state := NewDAGState("recon", []string{"subfinder"}, nil)
 	contract := NewPhaseContract("recon").AddRequiredTool("subfinder")
@@ -387,7 +388,14 @@ func TestTokenBudgetWarning(t *testing.T) {
 	// Should still return sections even if over budget
 	assert.Greater(t, len(sections), 0)
 
-	// Total tokens should exceed budget
+	// Total tokens should be reduced even if the core sections alone exceed budget
 	total := builder.calculateTotalTokens(sections)
-	assert.Greater(t, total, builder.TokenBudget)
+	assert.Less(t, total, 341)
+
+	sectionNames := make(map[string]bool)
+	for _, section := range sections {
+		sectionNames[section.Name] = true
+	}
+	assert.True(t, sectionNames["system_prompt"])
+	assert.True(t, sectionNames["phase_context"])
 }

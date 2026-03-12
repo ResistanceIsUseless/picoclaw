@@ -10,6 +10,10 @@ type ToolResult struct {
 	// Required for all results.
 	ForLLM string `json:"for_llm"`
 
+	// RawOutput preserves the unfiltered tool output for downstream parsing.
+	// It is kept out of JSON/session serialization to avoid context bloat.
+	RawOutput string `json:"-"`
+
 	// ForUser is the content sent directly to the user.
 	// If empty, no user message is sent.
 	// Silent=true overrides this field.

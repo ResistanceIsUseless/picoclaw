@@ -38,6 +38,10 @@ type ContextBuilder struct {
 	// to inject into the system prompt. This allows the agent loop to provide
 	// workflow/mission state without tight coupling.
 	workflowContextFunc func() string
+
+	// runtimeContextFunc is an optional function that returns compact dynamic
+	// execution context, such as blackboard summaries, for per-request injection.
+	runtimeContextFunc func() string
 }
 
 func getGlobalConfigDir() string {
@@ -388,6 +392,13 @@ func (cb *ContextBuilder) buildDynamicContext(channel, chatID string) string {
 		fmt.Fprintf(&sb, "\n\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
 	}
 
+	if cb.runtimeContextFunc != nil {
+		runtimeContext := strings.TrimSpace(cb.runtimeContextFunc())
+		if runtimeContext != "" {
+			fmt.Fprintf(&sb, "\n\n## Runtime Context\n%s", runtimeContext)
+		}
+	}
+
 	return sb.String()
 }
 
@@ -601,4 +612,9 @@ func (cb *ContextBuilder) GetSkillsInfo() map[string]any {
 // This allows the agent loop to inject mission/workflow state without tight coupling.
 func (cb *ContextBuilder) SetWorkflowContextFunc(fn func() string) {
 	cb.workflowContextFunc = fn
+}
+
+// SetRuntimeContextFunc sets a function to provide compact dynamic runtime context.
+func (cb *ContextBuilder) SetRuntimeContextFunc(fn func() string) {
+	cb.runtimeContextFunc = fn
 }

@@ -3,14 +3,12 @@ package claw
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal"
-	"github.com/ResistanceIsUseless/picoclaw/pkg/integration"
-	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
+	"github.com/ResistanceIsUseless/picoclaw/pkg/tools"
 )
 
 func NewClawCommand() *cobra.Command {
@@ -73,31 +71,26 @@ func runClaw(ctx context.Context, pipelineFlag string, webUIFlag string, args []
 	fmt.Printf("🦞 CLAW Mode: %s pipeline\n", pipeline)
 	fmt.Printf("📍 Target: %s\n\n", target)
 
-	// Load config
-	cfg, err := internal.LoadConfig()
+	runtime, err := internal.BootstrapAgentRuntime("")
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
 
-	// Get provider
-	provider, _, err := providers.CreateProvider(cfg)
+	preflight, err := internal.PreflightCLAWPipeline(pipeline)
 	if err != nil {
-		return fmt.Errorf("failed to initialize provider: %w", err)
+		return fmt.Errorf("failed to validate pipeline: %w", err)
+	}
+	if preflight.HasBlockingIssues() {
+		summary := internal.BuildPreflightSummary("claw", extractMissingProfiles(preflight.MissingRequired), runtime.ProfileReadiness)
+		return fmt.Errorf("%s\n%s", preflight.BlockingMessage(pipeline), summary.Guidance)
 	}
 
-	// Setup CLAW adapter
-	persistenceDir := filepath.Join(os.ExpandEnv("$HOME"), ".picoclaw", "blackboard")
-	if cfg.Agents.Defaults.CLAWMode != nil && cfg.Agents.Defaults.CLAWMode.PersistenceDir != "" {
-		persistenceDir = os.ExpandEnv(cfg.Agents.Defaults.CLAWMode.PersistenceDir)
+	var sharedExecRegistry *tools.ToolRegistry
+	defaultAgent := runtime.AgentLoop.GetRegistry().GetDefaultAgent()
+	if defaultAgent != nil {
+		sharedExecRegistry = defaultAgent.Tools
 	}
-
-	adapterCfg := &integration.CLAWConfig{
-		Enabled:        true,
-		Pipeline:       pipeline,
-		PersistenceDir: persistenceDir,
-	}
-
-	clawAdapter, err := integration.NewCLAWAdapter(adapterCfg, provider)
+	clawAdapter, err := internal.BuildCLAWAdapter(runtime.Config, runtime.Provider, sharedExecRegistry, pipeline)
 	if err != nil {
 		return fmt.Errorf("failed to create CLAW adapter: %w", err)
 	}
@@ -111,7 +104,10 @@ func runClaw(ctx context.Context, pipelineFlag string, webUIFlag string, args []
 	}
 
 	// Execute assessment
-	fmt.Println("🚀 Starting assessment...\n")
+	fmt.Print("🚀 Starting assessment...\n\n")
+	if len(preflight.MissingOptional) > 0 {
+		fmt.Printf("⚠ Optional tools unavailable: %s\n\n", strings.Join(preflight.MissingOptional, ", "))
+	}
 	response, err := clawAdapter.ProcessMessage(ctx, target)
 	if err != nil {
 		return fmt.Errorf("CLAW execution failed: %w", err)
@@ -125,4 +121,14 @@ func runClaw(ctx context.Context, pipelineFlag string, webUIFlag string, args []
 	fmt.Println()
 
 	return nil
+}
+
+func extractMissingProfiles(items []string) []string {
+	missingProfiles := make([]string, 0)
+	for _, item := range items {
+		if strings.HasSuffix(item, " profile") {
+			missingProfiles = append(missingProfiles, strings.TrimSuffix(item, " profile"))
+		}
+	}
+	return missingProfiles
 }

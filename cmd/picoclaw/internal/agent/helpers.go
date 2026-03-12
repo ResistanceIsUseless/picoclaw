@@ -14,9 +14,7 @@ import (
 
 	"github.com/ResistanceIsUseless/picoclaw/cmd/picoclaw/internal"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/agent"
-	"github.com/ResistanceIsUseless/picoclaw/pkg/bus"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/logger"
-	"github.com/ResistanceIsUseless/picoclaw/pkg/providers"
 	"github.com/ResistanceIsUseless/picoclaw/pkg/tui"
 )
 
@@ -35,27 +33,12 @@ func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowNam
 		sessionKey = fmt.Sprintf("cli:workflow_%s_%d", workflowName, time.Now().Unix())
 	}
 
-	cfg, err := internal.LoadConfig()
+	runtime, err := internal.BootstrapAgentRuntime(model)
 	if err != nil {
-		return fmt.Errorf("error loading config: %w", err)
+		return err
 	}
-
-	if model != "" {
-		cfg.Agents.Defaults.ModelName = model
-	}
-
-	provider, modelID, err := providers.CreateProvider(cfg)
-	if err != nil {
-		return fmt.Errorf("error creating provider: %w", err)
-	}
-
-	// Use the resolved model ID from provider creation
-	if modelID != "" {
-		cfg.Agents.Defaults.ModelName = modelID
-	}
-
-	msgBus := bus.NewMessageBus()
-	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+	agentLoop := runtime.AgentLoop
+	globalPreflight := internal.BuildPreflightSummary("runtime", nil, runtime.ProfileReadiness)
 
 	// Load workflow if specified
 	if workflowName != "" {
@@ -78,6 +61,13 @@ func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowNam
 		} else {
 			fmt.Printf("📋 Loaded workflow: %s\n", workflowName)
 		}
+
+		assessment, assessErr := internal.AssessWorkflowProfileReadiness(workflowName, defaultAgent.Workspace, runtime.ProfileReadiness)
+		if assessErr == nil && assessment != nil && len(assessment.MissingProfiles) > 0 {
+			workflowPreflight := internal.BuildPreflightSummary("workflow", assessment.RequiredProfiles, runtime.ProfileReadiness)
+			fmt.Printf("⚠ %s\n", workflowPreflight.Message("Workflow capability gaps"))
+			globalPreflight = nil
+		}
 	}
 
 	// Print agent startup info (only for interactive mode)
@@ -87,7 +77,12 @@ func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowNam
 			"tools_count":      startupInfo["tools"].(map[string]any)["count"],
 			"skills_total":     startupInfo["skills"].(map[string]any)["total"],
 			"skills_available": startupInfo["skills"].(map[string]any)["available"],
+			"profiles_ready":   len(runtime.ProfileReadiness.ReadyProfiles),
 		})
+
+	if globalPreflight != nil && globalPreflight.HasGaps() {
+		fmt.Printf("⚠ %s\n", globalPreflight.Message("Capability gaps"))
+	}
 
 	if message != "" {
 		// Single message mode (non-interactive)
@@ -103,7 +98,21 @@ func agentCmd(message, sessionKey, model string, debug, useTUI bool, workflowNam
 	// Interactive mode
 	if useTUI {
 		// TUI mode
-		return tuiMode(agentLoop, sessionKey)
+		var workflowAssessment *internal.WorkflowProfileAssessment
+		var preflightSummary *internal.PreflightSummary
+		if workflowName != "" {
+			defaultAgent := agentLoop.GetRegistry().GetDefaultAgent()
+			if defaultAgent != nil {
+				workflowAssessment, _ = internal.AssessWorkflowProfileReadiness(workflowName, defaultAgent.Workspace, runtime.ProfileReadiness)
+				if workflowAssessment != nil {
+					preflightSummary = internal.BuildPreflightSummary("workflow", workflowAssessment.RequiredProfiles, runtime.ProfileReadiness)
+				}
+			}
+		}
+		if preflightSummary == nil {
+			preflightSummary = globalPreflight
+		}
+		return tuiMode(agentLoop, sessionKey, runtime.ProfileReadiness, preflightSummary)
 	}
 
 	// Traditional readline mode
@@ -198,9 +207,19 @@ func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 	}
 }
 
-func tuiMode(agentLoop *agent.AgentLoop, sessionKey string) error {
+func tuiMode(agentLoop *agent.AgentLoop, sessionKey string, readiness *internal.ProfileReadiness, preflightSummary *internal.PreflightSummary) error {
 	// Create TUI program
 	program := tui.NewProgram()
+	if readiness != nil {
+		program.SetProfileReadiness(len(readiness.ReadyProfiles), len(readiness.ReadyProfiles)+len(readiness.MissingProfiles))
+		if preflightSummary != nil && preflightSummary.HasGaps() {
+			prefix := "Capability gaps detected"
+			if preflightSummary.Scope == "workflow" {
+				prefix = "Workflow capability gaps detected"
+			}
+			program.AddSystemMessage(preflightSummary.Message(prefix))
+		}
+	}
 
 	// Set up input handler with closure
 	var programRef *tui.Program = program

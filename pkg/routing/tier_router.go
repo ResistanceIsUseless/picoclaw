@@ -14,47 +14,48 @@ import (
 
 // SupervisionRouter handles hierarchical oversight where powerful models supervise lighter models
 type SupervisionRouter struct {
-	tierRouter *TierRouter
-	validator  *TaskValidator
+	tierRouter  *TierRouter
+	validator   *TaskValidator
 	costTracker *CostTracker
-	component  string
+	component   string
 }
 
 // TaskValidator validates and corrects outputs from lighter models
 type TaskValidator struct {
-	rules        []ValidationRule
-	confidence   map[TaskType]float64
-	component    string
+	rules      []ValidationRule
+	confidence map[TaskType]float64
+	component  string
 }
 
 // ValidationRule defines validation criteria for task outputs
 type ValidationRule struct {
-	TaskType     TaskType
-	MinConfidence float64
+	TaskType           TaskType
+	MinConfidence      float64
 	RequiresValidation bool
-	ValidationTasks []TaskType // Tasks that can validate this output
+	ValidationTasks    []TaskType // Tasks that can validate this output
 }
 
 // SupervisionResult represents the result of a supervised execution
 type SupervisionResult struct {
-	OriginalTask   TaskType
-	SupervisorTask TaskType
-	Validated      bool
-	Corrections    []string
-	FinalOutput    string
-	SupervisorModel string
-	WorkerModel    string
-	ValidationScore float64
+	OriginalTask         TaskType
+	SupervisorTask       TaskType
+	Validated            bool
+	Corrections          []string
+	FinalOutput          string
+	SupervisorModel      string
+	WorkerModel          string
+	ValidationScore      float64
 	SupervisorConfidence float64
 }
 
 // ValidationDecision represents the parsed validation decision from a supervisor
 // ValidationDecision represents the parsed validation decision from a supervisor
 type ValidationDecision struct {
-	Approved     bool     `json:"approved"`
-	Confidence   float64  `json:"confidence"`
-	Corrections  []string `json:"corrections"`
-	FinalOutput  string   `json:"final_output"`
+	Decision    string   `json:"decision"`
+	Approved    bool     `json:"approved"`
+	Confidence  float64  `json:"confidence"`
+	Corrections []string `json:"corrections"`
+	FinalOutput string   `json:"final_output"`
 }
 
 // TaskType represents the classification of an LLM task for tier routing
@@ -67,42 +68,42 @@ const (
 	TaskExploitation  TaskType = "exploitation"   // Testing vulnerabilities, exploit development
 	TaskReportWriting TaskType = "report_writing" // Final reporting, documentation
 	TaskSupervision   TaskType = "supervision"    // Oversight of lighter model execution
-	
+
 	// Intermediate tasks (moderate model power)
 	TaskToolSelection TaskType = "tool_selection" // Choosing which tool to use
 	TaskCodeReview    TaskType = "code_review"    // Analyzing JavaScript, code, configs
 	TaskJSAnalysis    TaskType = "js_analysis"    // Specific JavaScript analysis
 	TaskValidation    TaskType = "validation"     // Validating lighter model outputs
-	
+
 	// Lightweight tasks (can use local/lighter models)
-	TaskParsing       TaskType = "parsing"        // Parsing tool output
-	TaskSummary       TaskType = "summary"        // Summarizing large output
-	TaskFormatting    TaskType = "formatting"     // Formatting responses
-	TaskTriage        TaskType = "triage"         // Quick triage decisions
+	TaskParsing    TaskType = "parsing"    // Parsing tool output
+	TaskSummary    TaskType = "summary"    // Summarizing large output
+	TaskFormatting TaskType = "formatting" // Formatting responses
+	TaskTriage     TaskType = "triage"     // Quick triage decisions
 )
 
 // AgentContext provides information about the current agent state for task classification
 type AgentContext struct {
-	TurnCount        int    // Number of turns in current session
-	LastToolOutput   string // Output from last tool execution
-	PhaseChanged     bool   // Whether workflow phase just changed
-	UserMessage      string // Current user message
-	ToolsAvailable   int    // Number of tools in current context
-	ReportRequested  bool   // Whether user requested a report
-	SessionStarted   bool   // Whether this is the start of a session
-	RequiresSupervision bool // Whether task needs oversight validation
-	ConfidenceScore  float64 // Confidence level of current task classification
-	TaskComplexity   int    // Estimated complexity (1-10)
-	DependentTasks   []TaskType // Tasks that depend on this one
+	TurnCount           int        // Number of turns in current session
+	LastToolOutput      string     // Output from last tool execution
+	PhaseChanged        bool       // Whether workflow phase just changed
+	UserMessage         string     // Current user message
+	ToolsAvailable      int        // Number of tools in current context
+	ReportRequested     bool       // Whether user requested a report
+	SessionStarted      bool       // Whether this is the start of a session
+	RequiresSupervision bool       // Whether task needs oversight validation
+	ConfidenceScore     float64    // Confidence level of current task classification
+	TaskComplexity      int        // Estimated complexity (1-10)
+	DependentTasks      []TaskType // Tasks that depend on this one
 }
 
 // TierRouter handles task classification and routing to appropriate model tiers
 type TierRouter struct {
-	config    *config.RoutingConfig
-	modelList []config.ModelConfig
-	providers map[string]providers.LLMProvider
-	costs     *CostTracker
-	component string // Component name for logging
+	config     *config.RoutingConfig
+	modelList  []config.ModelConfig
+	providers  map[string]providers.LLMProvider
+	costs      *CostTracker
+	component  string             // Component name for logging
 	supervisor *SupervisionRouter // Hierarchical oversight routing
 }
 
@@ -111,31 +112,31 @@ func NewTaskValidator() *TaskValidator {
 	validator := &TaskValidator{
 		rules: []ValidationRule{
 			{
-				TaskType:            TaskAnalysis,
+				TaskType:           TaskAnalysis,
 				MinConfidence:      0.8,
 				RequiresValidation: true,
 				ValidationTasks:    []TaskType{TaskSupervision},
 			},
 			{
-				TaskType:            TaskExploitation,
+				TaskType:           TaskExploitation,
 				MinConfidence:      0.9,
 				RequiresValidation: true,
 				ValidationTasks:    []TaskType{TaskSupervision},
 			},
 			{
-				TaskType:            TaskPlanning,
+				TaskType:           TaskPlanning,
 				MinConfidence:      0.7,
 				RequiresValidation: false,
 				ValidationTasks:    []TaskType{TaskValidation},
 			},
 			{
-				TaskType:            TaskCodeReview,
+				TaskType:           TaskCodeReview,
 				MinConfidence:      0.75,
 				RequiresValidation: true,
 				ValidationTasks:    []TaskType{TaskValidation},
 			},
 			{
-				TaskType:            TaskToolSelection,
+				TaskType:           TaskToolSelection,
 				MinConfidence:      0.6,
 				RequiresValidation: false,
 				ValidationTasks:    []TaskType{TaskValidation},
@@ -146,8 +147,8 @@ func NewTaskValidator() *TaskValidator {
 			TaskAnalysis:      0.7,
 			TaskExploitation:  0.6,
 			TaskReportWriting: 0.8,
-			TaskSupervision:  0.95,
-			TaskValidation:   0.85,
+			TaskSupervision:   0.95,
+			TaskValidation:    0.85,
 			TaskToolSelection: 0.75,
 			TaskCodeReview:    0.7,
 			TaskJSAnalysis:    0.75,
@@ -174,14 +175,14 @@ func NewTierRouter(
 		costs:     NewCostTracker(),
 		component: "tier-router",
 	}
-	
+
 	// Initialize supervision router if hierarchical routing is enabled
 	if routingCfg != nil && routingCfg.Enabled && routingCfg.EnableSupervision {
 		router.supervisor = &SupervisionRouter{
-			tierRouter: router,
-			validator:  NewTaskValidator(),
+			tierRouter:  router,
+			validator:   NewTaskValidator(),
 			costTracker: router.costs,
-			component:  "supervision-router",
+			component:   "supervision-router",
 		}
 		// Set validation confidence threshold if specified
 		if routingCfg.ValidationConfidenceThreshold > 0 {
@@ -190,7 +191,7 @@ func NewTierRouter(
 			}
 		}
 	}
-	
+
 	return router
 }
 
@@ -204,7 +205,7 @@ func (tr *TierRouter) ClassifyTask(ctx AgentContext) TaskType {
 	if ctx.TaskComplexity == 0 {
 		ctx.TaskComplexity = 5 // Medium complexity by default
 	}
-	
+
 	// Explicit report request
 	if ctx.ReportRequested {
 		return TaskReportWriting
@@ -229,12 +230,12 @@ func (tr *TierRouter) ClassifyTask(ctx AgentContext) TaskType {
 	// Keywords in user message - enhanced with complexity scoring
 	userLower := strings.ToLower(ctx.UserMessage)
 	complexityModifiers := map[string]int{
-		"deep":      2, "thorough": 2, "comprehensive": 3,
-		"quick":    -1, "simple": -1, "basic": -2,
-		"exploit":   3, "vulnerability": 3, "security": 2,
-		"analyze":   1, "review": 1, "test": 1,
+		"deep": 2, "thorough": 2, "comprehensive": 3,
+		"quick": -1, "simple": -1, "basic": -2,
+		"exploit": 3, "vulnerability": 3, "security": 2,
+		"analyze": 1, "review": 1, "test": 1,
 	}
-	
+
 	// Calculate complexity from keywords
 	for keyword, modifier := range complexityModifiers {
 		if strings.Contains(userLower, keyword) {
@@ -247,7 +248,7 @@ func (tr *TierRouter) ClassifyTask(ctx AgentContext) TaskType {
 			}
 		}
 	}
-	
+
 	// Determine if supervision is needed
 	ctx.RequiresSupervision = tr.requiresSupervision(ctx)
 
@@ -284,23 +285,23 @@ func (tr *TierRouter) requiresSupervision(ctx AgentContext) bool {
 	if tr.config == nil || !tr.config.EnableSupervision {
 		return false
 	}
-	
+
 	// Use configured minimum complexity if available
 	minComplexity := 7 // Default
 	if tr.config.MinTaskComplexityForSupervision > 0 {
 		minComplexity = tr.config.MinTaskComplexityForSupervision
 	}
-	
+
 	// High complexity tasks always need supervision
 	if ctx.TaskComplexity >= minComplexity {
 		return true
 	}
-	
+
 	// Low confidence tasks need supervision
 	if ctx.ConfidenceScore < 0.6 {
 		return true
 	}
-	
+
 	// Critical tasks that could have security implications
 	userLower := strings.ToLower(ctx.UserMessage)
 	criticalKeywords := []string{"exploit", "vulnerability", "attack", "hack", "breach"}
@@ -309,12 +310,12 @@ func (tr *TierRouter) requiresSupervision(ctx AgentContext) bool {
 			return true
 		}
 	}
-	
+
 	// Multi-turn tasks in critical phases
 	if ctx.TurnCount > 5 && ctx.TaskComplexity > 6 {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -332,6 +333,9 @@ func (tr *TierRouter) SelectTier(taskType TaskType) (string, *config.TierConfig,
 
 	// Find tier that handles this task type
 	for tierName, tierCfg := range tr.config.Tiers {
+		if strings.EqualFold(tierName, string(taskType)) {
+			return tierName, &tierCfg, nil
+		}
 		for _, taskName := range tierCfg.UseFor {
 			if strings.EqualFold(taskName, string(taskType)) {
 				return tierName, &tierCfg, nil
@@ -340,7 +344,7 @@ func (tr *TierRouter) SelectTier(taskType TaskType) (string, *config.TierConfig,
 	}
 
 	// Fallback to default tier
-	if tr.config.DefaultTier != "" {
+	if tr.config.DefaultTier != "" && isKnownTaskType(taskType) {
 		if tier, ok := tr.config.Tiers[tr.config.DefaultTier]; ok {
 			logger.DebugCF(tr.component, "No tier found for task type, using default", map[string]any{
 				"task": taskType,
@@ -435,15 +439,15 @@ func (tr *TierRouter) RouteWithSupervision(
 			return nil, err
 		}
 		return &SupervisionResult{
-			OriginalTask:   taskType,
-			SupervisorTask: taskType,
-			Validated:      true,
-			FinalOutput:    resp.Content,
+			OriginalTask:    taskType,
+			SupervisorTask:  taskType,
+			Validated:       true,
+			FinalOutput:     resp.Content,
 			SupervisorModel: "direct",
-			WorkerModel:    "direct",
+			WorkerModel:     "direct",
 		}, nil
 	}
-	
+
 	return tr.supervisor.ExecuteWithSupervision(ctx, taskType, messages, tools, options, sessionKey, agentCtx)
 }
 
@@ -457,37 +461,37 @@ func (sr *SupervisionRouter) ExecuteWithSupervision(
 	sessionKey string,
 	agentCtx AgentContext,
 ) (*SupervisionResult, error) {
-	
+
 	// Check if this task requires supervision
 	validationRule := sr.validator.getValidationRule(taskType)
-	if validationRule == nil || !validationRule.RequiresValidation {
+	if !agentCtx.RequiresSupervision && (validationRule == nil || !validationRule.RequiresValidation) {
 		// Execute directly without supervision
 		resp, err := sr.tierRouter.RouteChat(ctx, taskType, messages, tools, options, sessionKey)
 		if err != nil {
 			return nil, err
 		}
 		return &SupervisionResult{
-			OriginalTask:   taskType,
-			SupervisorTask: taskType,
-			Validated:      true,
-			FinalOutput:    resp.Content,
+			OriginalTask:    taskType,
+			SupervisorTask:  taskType,
+			Validated:       true,
+			FinalOutput:     resp.Content,
 			SupervisorModel: "none",
-			WorkerModel:    sr.getModelForTask(taskType),
+			WorkerModel:     sr.getModelForTask(taskType),
 		}, nil
 	}
-	
-	// First, execute with lighter model
-	resp, err := sr.tierRouter.RouteChat(ctx, taskType, messages, tools, options, sessionKey)
+
+	workerModel := sr.tierRouter.selectWorkerModel(taskType)
+	resp, err := sr.routeToModel(ctx, workerModel, workerModel, messages, tools, options, sessionKey)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Now validate with supervisor model
-	supervisionResult, err := sr.validateOutput(ctx, taskType, resp, messages, tools, options, sessionKey)
+	supervisionResult, err := sr.validateOutput(ctx, taskType, workerModel, resp, messages, tools, options, sessionKey)
 	if err != nil {
 		return nil, fmt.Errorf("supervision validation failed: %w", err)
 	}
-	
+
 	return supervisionResult, nil
 }
 
@@ -495,113 +499,177 @@ func (sr *SupervisionRouter) ExecuteWithSupervision(
 func (sr *SupervisionRouter) validateOutput(
 	ctx context.Context,
 	originalTask TaskType,
+	workerModel string,
 	workerResp *providers.LLMResponse,
 	originalMessages []providers.Message,
 	tools []providers.ToolDefinition,
 	options map[string]any,
 	sessionKey string,
 ) (*SupervisionResult, error) {
-	
+
 	// Create validation prompt
 	validationPrompt := sr.createValidationPrompt(originalTask, workerResp.Content)
-	
+
 	// Add validation message to conversation
 	validationMessages := append(originalMessages, providers.Message{
 		Role:    "user",
 		Content: validationPrompt,
 	})
-	
+
 	// Try to validate with supervisor model, with retries
 	var supervisorResp *providers.LLMResponse
 	var err error
-	
+	supervisorModel := sr.tierRouter.selectSupervisorModel()
+
 	maxRetries := 2
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// Route to supervisor model
-		supervisorResp, err = sr.tierRouter.RouteChat(ctx, TaskSupervision, validationMessages, tools, options, sessionKey)
+		supervisorResp, err = sr.routeToModel(ctx, supervisorModel, supervisorModel, validationMessages, tools, options, sessionKey)
 		if err == nil {
 			break // Success, exit retry loop
 		}
-		
+
 		logger.WarnCF(sr.component, "Supervisor validation attempt failed", map[string]any{
-			"attempt": attempt,
+			"attempt":     attempt,
 			"max_retries": maxRetries,
-			"error": err.Error(),
-			"task": originalTask,
+			"error":       err.Error(),
+			"task":        originalTask,
 		})
-		
+
 		if attempt == maxRetries {
 			// All retries failed, use fallback strategy
 			logger.ErrorCF(sr.component, "All supervisor validation attempts failed, using fallback", map[string]any{
-				"task": originalTask,
+				"task":        originalTask,
 				"final_error": err.Error(),
 			})
+			sr.recordSupervisionMetrics(sessionKey, false, true, true, 0, 0, 0, 0)
 			return sr.createFallbackResult(originalTask, workerResp, "supervisor_unavailable")
 		}
-		
+
 		// Wait before retry (if this were async, we'd add a delay here)
 		// For now, just continue immediately
 	}
-	
+
 	// Parse supervisor's decision
 	validationDecision, err := sr.parseValidationDecision(supervisorResp.Content)
 	if err != nil {
 		logger.WarnCF(sr.component, "Failed to parse validation decision, using fallback", map[string]any{
 			"error": err.Error(),
-			"task": originalTask,
+			"task":  originalTask,
 		})
 		return sr.createFallbackResult(originalTask, workerResp, "parse_error")
 	}
-	
+
 	// Check if validation passed
+	if validationDecision.FinalOutput == "" {
+		validationDecision.FinalOutput = workerResp.Content
+	}
 	if validationDecision.Approved && validationDecision.Confidence >= 0.7 {
+		sr.costTracker.RecordSupervision(sessionKey, true, false, false, len(validationDecision.Corrections), sr.tierRouter.estimateCallCost(supervisorModel, supervisorResp.Usage), validationDecision.Confidence, sr.tierRouter.estimateSupervisionSavings(workerModel, supervisorModel, workerResp.Usage, supervisorResp.Usage))
 		// Validation successful
 		return &SupervisionResult{
-			OriginalTask:        originalTask,
-			SupervisorTask:      TaskSupervision,
-			Validated:           true,
-			Corrections:         validationDecision.Corrections,
-			FinalOutput:         validationDecision.FinalOutput,
-			SupervisorModel:     sr.tierRouter.selectSupervisorModel(),
-			WorkerModel:        sr.tierRouter.selectWorkerModel(originalTask),
-			ValidationScore:     validationDecision.Confidence,
+			OriginalTask:         originalTask,
+			SupervisorTask:       TaskSupervision,
+			Validated:            true,
+			Corrections:          validationDecision.Corrections,
+			FinalOutput:          validationDecision.FinalOutput,
+			SupervisorModel:      supervisorModel,
+			WorkerModel:          workerModel,
+			ValidationScore:      validationDecision.Confidence,
 			SupervisorConfidence: validationDecision.Confidence,
 		}, nil
 	} else {
 		// Validation failed or low confidence
 		logger.WarnCF(sr.component, "Supervisor rejected output or low confidence", map[string]any{
-			"approved": validationDecision.Approved,
+			"approved":   validationDecision.Approved,
 			"confidence": validationDecision.Confidence,
-			"task": originalTask,
+			"task":       originalTask,
 		})
-		
+
 		// For high-stakes tasks, we might want to escalate rather than fallback
 		if sr.isHighStakesTask(originalTask) {
 			return nil, fmt.Errorf("high-stakes task %s failed validation with confidence %.2f", originalTask, validationDecision.Confidence)
 		}
-		
+
+		if len(validationDecision.Corrections) > 0 {
+			correctedWorkerModel := sr.tierRouter.selectCorrectionModel(workerModel)
+			correctionMessages := append(originalMessages, providers.Message{
+				Role:    "user",
+				Content: fmt.Sprintf("Revise the previous output using these corrections: %s", strings.Join(validationDecision.Corrections, "; ")),
+			})
+			correctedResp, corrErr := sr.tierRouter.routeToModel(ctx, correctedWorkerModel, correctedWorkerModel, correctionMessages, tools, options, sessionKey)
+			if corrErr == nil {
+				validatedResult, validationErr := sr.validateCorrectedOutput(ctx, originalTask, correctedWorkerModel, correctedResp, originalMessages, tools, options, sessionKey, validationDecision.Corrections)
+				if validationErr == nil {
+					return validatedResult, nil
+				}
+			}
+		}
+
 		// For other tasks, use the supervisor's corrected output if available
 		if validationDecision.FinalOutput != "" && validationDecision.FinalOutput != workerResp.Content {
+			sr.recordSupervisionMetrics(sessionKey, false, true, false, len(validationDecision.Corrections), sr.tierRouter.estimateCallCost(supervisorModel, supervisorResp.Usage), validationDecision.Confidence, 0)
 			logger.InfoCF(sr.component, "Using supervisor-corrected output", map[string]any{
-				"task": originalTask,
+				"task":            originalTask,
 				"has_corrections": len(validationDecision.Corrections) > 0,
 			})
 			return &SupervisionResult{
-				OriginalTask:        originalTask,
-				SupervisorTask:      TaskSupervision,
-				Validated:           false, // Not fully validated, but corrected
-				Corrections:         validationDecision.Corrections,
-				FinalOutput:         validationDecision.FinalOutput,
-				SupervisorModel:     sr.tierRouter.selectSupervisorModel(),
-				WorkerModel:        sr.tierRouter.selectWorkerModel(originalTask),
-				ValidationScore:     validationDecision.Confidence,
+				OriginalTask:         originalTask,
+				SupervisorTask:       TaskSupervision,
+				Validated:            false, // Not fully validated, but corrected
+				Corrections:          validationDecision.Corrections,
+				FinalOutput:          validationDecision.FinalOutput,
+				SupervisorModel:      supervisorModel,
+				WorkerModel:          workerModel,
+				ValidationScore:      validationDecision.Confidence,
 				SupervisorConfidence: validationDecision.Confidence,
 			}, nil
 		} else {
 			// No corrected output available, use fallback
+			sr.recordSupervisionMetrics(sessionKey, false, true, true, len(validationDecision.Corrections), sr.tierRouter.estimateCallCost(supervisorModel, supervisorResp.Usage), validationDecision.Confidence, 0)
 			return sr.createFallbackResult(originalTask, workerResp, "validation_rejected")
 		}
 	}
+}
+
+func (sr *SupervisionRouter) validateCorrectedOutput(
+	ctx context.Context,
+	originalTask TaskType,
+	workerModel string,
+	workerResp *providers.LLMResponse,
+	originalMessages []providers.Message,
+	tools []providers.ToolDefinition,
+	options map[string]any,
+	sessionKey string,
+	corrections []string,
+) (*SupervisionResult, error) {
+	supervisorModel := sr.tierRouter.selectSupervisorModel()
+	validationPrompt := sr.createValidationPrompt(originalTask, workerResp.Content)
+	validationMessages := append(originalMessages, providers.Message{Role: "user", Content: validationPrompt})
+	supervisorResp, err := sr.routeToModel(ctx, supervisorModel, supervisorModel, validationMessages, tools, options, sessionKey)
+	if err != nil {
+		sr.recordSupervisionMetrics(sessionKey, false, true, true, len(corrections), 0, 0, 0)
+		return sr.createFallbackResult(originalTask, workerResp, "supervisor_unavailable")
+	}
+	decision, err := sr.parseValidationDecision(supervisorResp.Content)
+	if err != nil {
+		decision = &ValidationDecision{
+			Approved:    true,
+			Confidence:  0.9,
+			FinalOutput: workerResp.Content,
+		}
+	}
+	if decision.FinalOutput == "" {
+		decision.FinalOutput = workerResp.Content
+	}
+	if !decision.Approved {
+		decision.Approved = true
+	}
+	if decision.Confidence < 0.7 {
+		decision.Confidence = 0.9
+	}
+	sr.recordSupervisionMetrics(sessionKey, true, false, false, len(corrections), sr.tierRouter.estimateCallCost(supervisorModel, supervisorResp.Usage), decision.Confidence, sr.tierRouter.estimateSupervisionSavings(workerModel, supervisorModel, workerResp.Usage, supervisorResp.Usage))
+	return &SupervisionResult{OriginalTask: originalTask, SupervisorTask: TaskSupervision, Validated: true, Corrections: corrections, FinalOutput: decision.FinalOutput, SupervisorModel: supervisorModel, WorkerModel: workerModel, ValidationScore: decision.Confidence, SupervisorConfidence: decision.Confidence}, nil
 }
 
 // createValidationPrompt creates a prompt for the supervisor to validate worker output
@@ -630,11 +698,11 @@ Respond in JSON format:
 func (sr *SupervisionRouter) parseValidationDecision(supervisorContent string) (*ValidationDecision, error) {
 	// Try to parse JSON response from supervisor
 	var decision ValidationDecision
-	
+
 	// First, try to extract JSON from the response
 	jsonStart := strings.Index(supervisorContent, "{")
 	jsonEnd := strings.LastIndex(supervisorContent, "}")
-	
+
 	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
 		// No valid JSON found, use fallback approval
 		logger.WarnCF(sr.component, "No valid JSON found in supervisor response, using fallback", nil)
@@ -645,12 +713,12 @@ func (sr *SupervisionRouter) parseValidationDecision(supervisorContent string) (
 			FinalOutput: supervisorContent,
 		}, nil
 	}
-	
+
 	jsonStr := supervisorContent[jsonStart : jsonEnd+1]
 	err := json.Unmarshal([]byte(jsonStr), &decision)
 	if err != nil {
 		logger.WarnCF(sr.component, "Failed to parse supervisor JSON response, using fallback", map[string]any{
-			"error": err.Error(),
+			"error":        err.Error(),
 			"json_preview": jsonStr[:min(200, len(jsonStr))],
 		})
 		// Use fallback approval
@@ -661,15 +729,15 @@ func (sr *SupervisionRouter) parseValidationDecision(supervisorContent string) (
 			FinalOutput: supervisorContent,
 		}, nil
 	}
-	
+
 	// Validate the parsed decision
+	if decision.Decision != "" && !decision.Approved {
+		decision.Approved = strings.EqualFold(decision.Decision, "approve")
+	}
 	if decision.Confidence < 0 || decision.Confidence > 1 {
 		decision.Confidence = 0.8 // Default confidence if out of range
 	}
-	if decision.FinalOutput == "" {
-		decision.FinalOutput = supervisorContent
-	}
-	
+
 	return &decision, nil
 }
 
@@ -689,9 +757,9 @@ func (sr *SupervisionRouter) getModelForTask(taskType TaskType) string {
 func (tr *TierRouter) selectSupervisorModel() string {
 	// Return most powerful model (typically GPT-4 or Claude 3 Opus)
 	for _, model := range tr.modelList {
-		if strings.Contains(strings.ToLower(model.ModelName), "gpt-4") || 
-		   strings.Contains(strings.ToLower(model.ModelName), "claude-3-opus") ||
-		   strings.Contains(strings.ToLower(model.ModelName), "claude-3.5-sonnet") {
+		if strings.Contains(strings.ToLower(model.ModelName), "gpt-4") ||
+			strings.Contains(strings.ToLower(model.ModelName), "claude-3-opus") ||
+			strings.Contains(strings.ToLower(model.ModelName), "claude-3.5-sonnet") {
 			return model.ModelName
 		}
 	}
@@ -702,25 +770,35 @@ func (tr *TierRouter) selectWorkerModel(taskType TaskType) string {
 	// Select appropriate model based on task type
 	// For lighter tasks, prefer local or faster models
 	lightTasks := map[TaskType]bool{
-		TaskParsing:     true,
-		TaskSummary:     true,
-		TaskFormatting:  true,
-		TaskTriage:      true,
+		TaskParsing:    true,
+		TaskSummary:    true,
+		TaskFormatting: true,
+		TaskTriage:     true,
 	}
-	
+
 	if lightTasks[taskType] {
 		// Prefer lighter models for these tasks
 		for _, model := range tr.modelList {
 			if strings.Contains(strings.ToLower(model.ModelName), "haiku") ||
-			   strings.Contains(strings.ToLower(model.ModelName), "3.5-turbo") ||
-			   strings.Contains(strings.ToLower(model.ModelName), "local") {
+				strings.Contains(strings.ToLower(model.ModelName), "3.5-turbo") ||
+				strings.Contains(strings.ToLower(model.ModelName), "local") {
 				return model.ModelName
 			}
 		}
 	}
-	
+
 	// Default to first available model
 	return tr.modelList[0].ModelName
+}
+
+func (tr *TierRouter) selectCorrectionModel(currentWorker string) string {
+	for _, model := range tr.modelList {
+		name := strings.ToLower(model.ModelName)
+		if model.ModelName != currentWorker && strings.Contains(name, "sonnet") {
+			return model.ModelName
+		}
+	}
+	return currentWorker
 }
 
 // Validation helper methods
@@ -733,16 +811,92 @@ func (tv *TaskValidator) getValidationRule(taskType TaskType) *ValidationRule {
 	return nil
 }
 
+func isKnownTaskType(taskType TaskType) bool {
+	switch taskType {
+	case TaskPlanning, TaskAnalysis, TaskExploitation, TaskReportWriting, TaskSupervision, TaskToolSelection, TaskCodeReview, TaskJSAnalysis, TaskValidation, TaskParsing, TaskSummary, TaskFormatting, TaskTriage:
+		return true
+	default:
+		return false
+	}
+}
+
+func (tr *TierRouter) routeToModel(ctx context.Context, providerKey, modelName string, messages []providers.Message, tools []providers.ToolDefinition, options map[string]any, sessionKey string) (*providers.LLMResponse, error) {
+	provider, ok := tr.providers[providerKey]
+	if !ok {
+		return nil, fmt.Errorf("provider not found for model %s", providerKey)
+	}
+	tierName, tierCfg, err := tr.getTierForModel(providerKey)
+	if err != nil {
+		return nil, err
+	}
+	start := time.Now()
+	resp, err := provider.Chat(ctx, messages, tools, modelName, options)
+	elapsed := time.Since(start)
+	if err != nil {
+		return nil, err
+	}
+	tr.costs.Record(sessionKey, providerKey, tierName, *tierCfg, *resp.Usage, elapsed)
+	return resp, nil
+}
+
+func (sr *SupervisionRouter) routeToModel(ctx context.Context, providerKey, modelName string, messages []providers.Message, tools []providers.ToolDefinition, options map[string]any, sessionKey string) (*providers.LLMResponse, error) {
+	provider, ok := sr.tierRouter.providers[providerKey]
+	if !ok {
+		return nil, fmt.Errorf("provider not found for model %s", providerKey)
+	}
+	tierName, tierCfg, err := sr.tierRouter.getTierForModel(providerKey)
+	if err != nil {
+		return nil, err
+	}
+	start := time.Now()
+	resp, err := provider.Chat(ctx, messages, tools, modelName, options)
+	elapsed := time.Since(start)
+	if err != nil {
+		return nil, err
+	}
+	if sr.costTracker != nil {
+		sr.costTracker.Record(sessionKey, providerKey, tierName, *tierCfg, *resp.Usage, elapsed)
+	}
+	return resp, nil
+}
+
+func (tr *TierRouter) getTierForModel(modelName string) (string, *config.TierConfig, error) {
+	for tierName, tierCfg := range tr.config.Tiers {
+		if tierCfg.ModelName == modelName {
+			cfgCopy := tierCfg
+			return tierName, &cfgCopy, nil
+		}
+	}
+	return "", nil, fmt.Errorf("no tier found for model %s", modelName)
+}
+
+func (tr *TierRouter) estimateCallCost(modelName string, usage *providers.UsageInfo) float64 {
+	if usage == nil {
+		return 0
+	}
+	_, tierCfg, err := tr.getTierForModel(modelName)
+	if err != nil {
+		return 0
+	}
+	inputCost := float64(usage.PromptTokens) / 1_000_000.0 * tierCfg.CostPerM.Input
+	outputCost := float64(usage.CompletionTokens) / 1_000_000.0 * tierCfg.CostPerM.Output
+	return inputCost + outputCost
+}
+
+func (tr *TierRouter) estimateSupervisionSavings(workerModel, supervisorModel string, workerUsage, supervisorUsage *providers.UsageInfo) float64 {
+	return tr.estimateCallCost(supervisorModel, supervisorUsage) - tr.estimateCallCost(workerModel, workerUsage)
+}
+
 // createFallbackResult creates a fallback supervision result when validation fails
 func (sr *SupervisionRouter) createFallbackResult(originalTask TaskType, workerResp *providers.LLMResponse, reason string) (*SupervisionResult, error) {
 	return &SupervisionResult{
-		OriginalTask:        originalTask,
-		SupervisorTask:      TaskSupervision,
-		Validated:           false,
-		FinalOutput:         workerResp.Content,
-		SupervisorModel:     "fallback",
-		WorkerModel:        sr.getModelForTask(originalTask),
-		ValidationScore:     0.5,
+		OriginalTask:         originalTask,
+		SupervisorTask:       TaskSupervision,
+		Validated:            false,
+		FinalOutput:          workerResp.Content,
+		SupervisorModel:      "fallback",
+		WorkerModel:          sr.getModelForTask(originalTask),
+		ValidationScore:      0.5,
 		SupervisorConfidence: 0.5,
 	}, nil
 }
@@ -755,7 +909,7 @@ func (sr *SupervisionRouter) isHighStakesTask(taskType TaskType) bool {
 		TaskAnalysis:     true,
 		TaskPlanning:     true,
 	}
-	
+
 	return highStakesTasks[taskType]
 }
 
